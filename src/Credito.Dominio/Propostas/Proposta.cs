@@ -26,6 +26,7 @@ public sealed class Proposta
         // insercao por todas as paginas e fragmentaria o indice.
         Id = Guid.CreateVersion7();
         ChaveIdempotencia = dados.ChaveIdempotencia;
+        ImpressaoDoPedido = dados.ImpressaoDoPedido;
         Cpf = dados.Cpf;
         NomeSolicitante = dados.NomeSolicitante.Trim();
         DataDeNascimento = dados.DataDeNascimento;
@@ -42,7 +43,13 @@ public sealed class Proposta
 
     public string ChaveIdempotencia { get; private set; } = string.Empty;
 
-    public Cpf Cpf { get; private set; } = null!;
+    /// <summary>
+    /// Resumo do conteudo enviado. Mesma chave com impressao diferente e erro do
+    /// cliente, nao reenvio — e precisa ser recusado em vez de devolver a proposta errada.
+    /// </summary>
+    public string ImpressaoDoPedido { get; private set; } = string.Empty;
+
+    public CpfProtegido Cpf { get; private set; } = null!;
 
     public string NomeSolicitante { get; private set; } = string.Empty;
 
@@ -93,6 +100,11 @@ public sealed class Proposta
         if (string.IsNullOrWhiteSpace(dados.ChaveIdempotencia))
         {
             throw new PropostaInvalidaException("Chave de idempotencia obrigatoria.");
+        }
+
+        if (string.IsNullOrWhiteSpace(dados.ImpressaoDoPedido))
+        {
+            throw new PropostaInvalidaException("Impressao do pedido obrigatoria.");
         }
 
         if (string.IsNullOrWhiteSpace(dados.NomeSolicitante))
