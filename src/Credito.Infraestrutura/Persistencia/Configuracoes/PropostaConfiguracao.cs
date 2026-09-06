@@ -14,7 +14,18 @@ internal sealed class PropostaConfiguracao : IEntityTypeConfiguration<Proposta>
         proposta.ToTable("Propostas");
         proposta.HasKey(linha => linha.Id);
 
+        // O Id sai do GUID v7 gerado no construtor, nunca do banco. Sem dizer isso ao
+        // EF, ele trata chave Guid como gerada na insercao e passa a usar a heuristica
+        // "chave preenchida significa registro existente" — o que faz uma transicao
+        // recem-criada virar UPDATE em vez de INSERT, atingir zero linhas e estourar
+        // como conflito de concorrencia.
+        proposta.Property(linha => linha.Id).ValueGeneratedNever();
+
         proposta.Property(linha => linha.ChaveIdempotencia).HasMaxLength(64).IsRequired();
+
+        // SHA-256 em base64 tem 44 caracteres e nunca cresce: sem o limite o EF
+        // criaria nvarchar(max), que o SQL Server pode guardar fora da linha.
+        proposta.Property(linha => linha.ImpressaoDoPedido).HasMaxLength(64).IsRequired();
 
         // Indice unico e a garantia de verdade da idempotencia: reenvio simultaneo
         // do mesmo formulario bate aqui, no banco, e nao numa checagem antes do insert

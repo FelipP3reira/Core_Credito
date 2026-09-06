@@ -12,6 +12,7 @@ internal sealed class TransicaoDeEstadoConfiguracao : IEntityTypeConfiguration<T
 
         transicao.ToTable("TransicoesDeEstado");
         transicao.HasKey(linha => linha.Id);
+        transicao.Property(linha => linha.Id).ValueGeneratedNever();
 
         transicao.Property(linha => linha.De).HasConversion<int>();
         transicao.Property(linha => linha.Para).HasConversion<int>();

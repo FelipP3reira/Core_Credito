@@ -56,6 +56,8 @@ public sealed class RepositorioDePropostas : IRepositorioDePropostas
         }
     }
 
+    public Task Salvar(CancellationToken cancelamento) => contexto.SaveChangesAsync(cancelamento);
+
     private Task<Proposta?> PorChaveIdempotencia(string chave, CancellationToken cancelamento) =>
         contexto.Propostas
             .Include(proposta => proposta.Transicoes)
