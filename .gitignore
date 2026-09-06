@@ -21,5 +21,5 @@ coverage/
 *.coverage
 
 # Scripts locais de verificação, não fazem parte da entrega
-verificacao*.ps1
-bancada*.ps1
+verificacao*
+bancada*
