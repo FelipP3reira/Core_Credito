@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Credito.Dominio\Credito.Dominio.csproj" />
     <ProjectReference Include="..\..\src\Credito.Aplicacao\Credito.Aplicacao.csproj" />
+    <ProjectReference Include="..\..\src\Credito.Infraestrutura\Credito.Infraestrutura.csproj" />
   </ItemGroup>
 
 </Project>
