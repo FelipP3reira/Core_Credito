@@ -1,41 +1,63 @@
-var builder = WebApplication.CreateBuilder(args);
+using System.Globalization;
+using System.Text.Json.Serialization;
+using Credito.Api.Configuracao;
+using Credito.Api.Propostas;
+using Credito.Infraestrutura.Observabilidade;
+using Serilog;
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+// Em desenvolvimento os segredos vem do .env; em producao, das variaveis de ambiente
+// do proprio host. Os nomes com duplo sublinhado ja caem na configuracao sem mapeamento.
+DotNetEnv.Env.TraversePath().Load();
 
-var app = builder.Build();
+var construtor = WebApplication.CreateBuilder(args);
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+construtor.Services.AddSerilog((servicos, registro) => registro
+    .ReadFrom.Configuration(construtor.Configuration)
+    .ReadFrom.Services(servicos)
+    .Enrich.FromLogContext()
+    .Enrich.With(new MascaraDeDadosSensiveis())
+
+    // Cultura fixa no log: com pt-BR, valor decimal sairia com virgula e quebraria
+    // qualquer coisa que leia esses campos depois.
+    .WriteTo.Console(formatProvider: CultureInfo.InvariantCulture));
+
+construtor.Services.ConfigureHttpJsonOptions(opcoes =>
+    opcoes.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+
+construtor.Services.AdicionarCredito(construtor.Configuration);
+
+var aplicacao = construtor.Build();
+
+// O registro de requisicao fica por fora do tratador de erros de proposito: assim ele
+// enxerga o status final. Por dentro, uma proposta inexistente apareceria no log como
+// 500 com pilha inteira, e nao como o 404 que o cliente de fato recebeu. Excecao que o
+// tratador nao reconhece continua subindo ate aqui e sai registrada como falha de verdade.
+aplicacao.UseSerilogRequestLogging();
+
+aplicacao.UseExceptionHandler();
+
+if (!aplicacao.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    aplicacao.UseHsts();
+    aplicacao.UseHttpsRedirection();
 }
 
-app.UseHttpsRedirection();
-
-var summaries = new[]
+aplicacao.Use(async (contexto, proximo) =>
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+    // API que so devolve JSON: sem isso um navegador ainda pode ser induzido a
+    // interpretar a resposta como outra coisa.
+    contexto.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    contexto.Response.Headers["Referrer-Policy"] = "no-referrer";
+    contexto.Response.Headers["X-Frame-Options"] = "DENY";
 
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
+    await proximo().ConfigureAwait(false);
+});
 
-app.Run();
+aplicacao.UseRateLimiter();
 
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
+aplicacao.MapearPropostas();
+
+await aplicacao.RunAsync().ConfigureAwait(false);
+
+// Visivel para a fabrica de aplicacao dos testes de integracao.
+public partial class Program;
