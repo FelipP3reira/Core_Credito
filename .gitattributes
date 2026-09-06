@@ -1,0 +1,13 @@
+* text=auto
+
+*.cs text diff=csharp
+*.csproj text
+*.slnx text
+*.props text
+*.json text
+*.yml text
+*.md text
+
+# Entram em container Linux: CRLF quebra o shebang e o healthcheck.
+*.sh text eol=lf
+Dockerfile text eol=lf
