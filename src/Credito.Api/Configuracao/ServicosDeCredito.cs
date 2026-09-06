@@ -9,6 +9,7 @@ using FluentValidation;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Credito.Api.Configuracao;
 
@@ -16,10 +17,15 @@ internal static class ServicosDeCredito
 {
     public static IServiceCollection AdicionarCredito(this IServiceCollection servicos, IConfiguration configuracao)
     {
-        var conexao = configuracao.GetConnectionString("Banco")
-            ?? throw new InvalidOperationException("ConnectionStrings:Banco nao configurada. Veja o .env.example.");
-
-        servicos.AddDbContext<ContextoDeCredito>(opcoes => opcoes.UseSqlServer(conexao));
+        // A string de conexao e lida do provedor, nao capturada aqui. Configuracao lida
+        // no momento do registro congela o valor que existia antes de as fontes
+        // adicionadas depois entrarem — e e exatamente isso que a fabrica dos testes de
+        // integracao faz para apontar a API ao banco em container.
+        servicos.AddDbContext<ContextoDeCredito>((provedor, opcoes) =>
+            opcoes.UseSqlServer(
+                provedor.GetRequiredService<IConfiguration>().GetConnectionString("Banco")
+                ?? throw new InvalidOperationException(
+                    "ConnectionStrings:Banco nao configurada. Veja o .env.example.")));
 
         servicos.Configure<OpcoesDeProtecaoDeCpf>(configuracao.GetSection(OpcoesDeProtecaoDeCpf.Secao));
         servicos.Configure<LimiteDeSubmissao>(configuracao.GetSection(LimiteDeSubmissao.Secao));
@@ -37,21 +43,23 @@ internal static class ServicosDeCredito
         servicos.AddProblemDetails();
         servicos.AddExceptionHandler<TratamentoDeErrosDeDominio>();
 
-        return servicos.AdicionarLimiteDeSubmissao(configuracao);
+        return servicos.AdicionarLimiteDeSubmissao();
     }
 
-    private static IServiceCollection AdicionarLimiteDeSubmissao(
-        this IServiceCollection servicos,
-        IConfiguration configuracao)
-    {
-        var limite = configuracao.GetSection(LimiteDeSubmissao.Secao).Get<LimiteDeSubmissao>() ?? new LimiteDeSubmissao();
-
-        return servicos.AddRateLimiter(limitador =>
+    private static IServiceCollection AdicionarLimiteDeSubmissao(this IServiceCollection servicos) =>
+        servicos.AddRateLimiter(limitador =>
         {
             limitador.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
             limitador.AddPolicy(EndpointsDePropostas.PoliticaDeLimite, contexto =>
-                RateLimitPartition.GetFixedWindowLimiter(
+            {
+                // Lido por requisicao pelo mesmo motivo da string de conexao. O limitador
+                // de cada particao e criado uma vez e guardado, entao mudar o valor em
+                // tempo de execucao so vale para particao que ainda nao apareceu.
+                var limite = contexto.RequestServices
+                    .GetRequiredService<IOptionsMonitor<LimiteDeSubmissao>>().CurrentValue;
+
+                return RateLimitPartition.GetFixedWindowLimiter(
                     Identificar(contexto),
                     _ => new FixedWindowRateLimiterOptions
                     {
@@ -61,7 +69,8 @@ internal static class ServicosDeCredito
                         // Fila zero: quem passou do limite recebe 429 na hora. Enfileirar
                         // so empurraria a espera para o cliente sem aliviar o servidor.
                         QueueLimit = 0,
-                    }));
+                    });
+            });
 
             limitador.OnRejected = async (contexto, cancelamento) =>
             {
@@ -78,7 +87,6 @@ internal static class ServicosDeCredito
                     .ConfigureAwait(false);
             };
         });
-    }
 
     /// <remarks>
     /// Particiona por IP de conexao. Atras de proxy ou balanceador isso vira o IP do
