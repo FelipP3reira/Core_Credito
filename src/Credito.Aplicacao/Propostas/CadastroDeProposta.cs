@@ -1,3 +1,4 @@
+using Credito.Dominio.Amortizacao;
 using Credito.Dominio.Propostas;
 
 namespace Credito.Aplicacao.Propostas;

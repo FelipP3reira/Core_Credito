@@ -2,6 +2,7 @@ using System.Threading.RateLimiting;
 using Credito.Api.Erros;
 using Credito.Api.Propostas;
 using Credito.Aplicacao.Portas;
+using Credito.Dominio.Amortizacao;
 using Credito.Aplicacao.Propostas;
 using Credito.Infraestrutura.Persistencia;
 using Credito.Infraestrutura.Seguranca;
@@ -37,8 +38,16 @@ internal static class ServicosDeCredito
         servicos.AddScoped<CadastrarProposta>();
         servicos.AddScoped<EnviarPropostaParaAnalise>();
         servicos.AddScoped<ConsultarProposta>();
+        servicos.AddScoped<SimularProposta>();
+
+        // Registrados pela interface para o resolvedor receber todos de uma vez: sistema
+        // novo entra aqui e nada mais precisa mudar.
+        servicos.AddSingleton<ISistemaDeAmortizacao, TabelaPrice>();
+        servicos.AddSingleton<ISistemaDeAmortizacao, TabelaSac>();
+        servicos.AddSingleton<SistemasDeAmortizacao>();
 
         servicos.AddScoped<IValidator<PedidoDeCadastro>, ValidadorDeCadastro>();
+        servicos.AddScoped<IValidator<PedidoDeSimulacao>, ValidadorDeSimulacao>();
 
         servicos.AddProblemDetails();
         servicos.AddExceptionHandler<TratamentoDeErrosDeDominio>();

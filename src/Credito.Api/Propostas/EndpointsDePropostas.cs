@@ -17,6 +17,7 @@ internal static class EndpointsDePropostas
 
         propostas.MapPost("/", Cadastrar).RequireRateLimiting(PoliticaDeLimite);
         propostas.MapPost("/{id:guid}/analise", EnviarParaAnalise);
+        propostas.MapPost("/{id:guid}/simulacao", Simular);
         propostas.MapGet("/{id:guid}", Detalhar);
     }
 
@@ -69,6 +70,23 @@ internal static class EndpointsDePropostas
         var estado = await enviar.Executar(id, cancelamento).ConfigureAwait(false);
 
         return Results.Accepted($"/propostas/{id}", new RespostaDeAnalise(id, estado));
+    }
+
+    private static async Task<IResult> Simular(
+        Guid id,
+        PedidoDeSimulacao pedido,
+        IValidator<PedidoDeSimulacao> validador,
+        SimularProposta simular,
+        CancellationToken cancelamento)
+    {
+        var validacao = await validador.ValidateAsync(pedido, cancelamento).ConfigureAwait(false);
+        if (!validacao.IsValid)
+        {
+            return Results.ValidationProblem(validacao.ToDictionary());
+        }
+
+        // Nao muda estado nem grava nada, entao responde 200 e nao 201.
+        return Results.Ok(await simular.Executar(id, pedido.TaxaMensal, cancelamento).ConfigureAwait(false));
     }
 
     private static async Task<IResult> Detalhar(

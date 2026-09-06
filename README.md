@@ -10,11 +10,12 @@ requisições simultâneas e CPF que não aparece em log nem em coluna de banco.
 
 ## Estado atual
 
-A primeira fatia está pronta: a proposta nasce, entra em análise e pode ser consultada,
-com idempotência, validação, limite de submissão e proteção do CPF já no lugar.
+A proposta nasce, entra em análise, pode ser consultada e simulada — com idempotência,
+validação, limite de submissão e proteção do CPF já no lugar. O cálculo de parcelas
+existe nos dois sistemas, Price e SAC.
 
-O motor de decisão, o cálculo de parcelas e a contratação ainda não existem. O que já
-está escrito está testado; o que falta está listado no fim.
+O motor de decisão e a contratação ainda não existem. O que já está escrito está
+testado; o que falta está listado no fim.
 
 ## Como rodar
 
@@ -65,8 +66,8 @@ entra pela `Aplicacao`. A `Api` só encosta na `Infraestrutura` no `Program.cs`,
 amarrar a injeção de dependência.
 
 O domínio não referencia EF, ASP.NET nem nada da Microsoft. É isso que permite testar
-regra de negócio sem subir banco — e é por isso que 197 dos 213 testes rodam em menos de
-um terço de segundo.
+regra de negócio sem subir banco — e é por isso que 2.821 dos 2.845 testes rodam em
+pouco mais de meio segundo. Só os 24 de integração precisam de Docker.
 
 ## Máquina de estados
 
@@ -157,6 +158,38 @@ proposta já rastreada, virava `UPDATE` em vez de `INSERT`. O `UPDATE` não acha
 atingia zero linhas e subia como conflito de concorrência — um erro que não tem nenhuma
 relação com a causa.
 
+### A sobra do arredondamento vai toda para a última parcela
+
+Somar parcelas arredondadas a centavo nunca fecha exatamente com o valor financiado. Em
+vez de afrouxar o teste para uma margem, a última parcela recebe o que sobrou — que é o
+que banco faz. Assim o teste assere igualdade: a soma das amortizações é o financiado, sem
+tolerância. Em dez mil a 1% ao mês em doze meses isso aparece como onze parcelas de
+R$ 888,49 e uma última de R$ 888,47.
+
+Tudo em `decimal`, nunca `double`. A potência da fórmula da Price é feita por multiplicação
+repetida porque `Math.Pow` só existe em `double`, e levar dinheiro para ponto flutuante
+binário e trazer de volta é a origem clássica do centavo que falta no fim do contrato.
+
+O arredondamento é comercial, não bancário: o padrão do .NET leva a metade exata para o par
+mais próximo, o que desvia do que o cliente confere no boleto.
+
+### Nem toda combinação de valor, taxa e prazo existe em centavos
+
+Duas entradas quebravam o cronograma em silêncio, e as duas foram achadas por uma varredura
+sobre valor, taxa e prazo — não por caso escolhido a dedo:
+
+- **R$ 7,00 em 360 meses.** 7/360 dá 0,0194, que arredonda para 0,02, e 359 parcelas de dois
+  centavos passam dos sete reais. O saldo devedor virava negativo.
+- **R$ 1.292,40 a 1,89% ao mês em 360 meses.** A parcela de R$ 24,46 mal cobre os R$ 24,43
+  de juros do primeiro mês. O meio centavo em que a própria parcela foi arredondada se
+  acumula e a dívida zera na parcela 352, deixando oito parcelas fantasma.
+
+Tentei barrar isso por fórmula na entrada e errei duas vezes seguidas — o limite depende de
+valor, taxa e prazo ao mesmo tempo, e cada tentativa cobria só um dos casos. A conferência
+passou a acontecer parcela a parcela, onde o problema de fato aparece: é recusada tanto a
+parcela que passa do saldo quanto a que não amortiza nem um centavo. Recusar é melhor que
+devolver cronograma curto ou com parcela zerada no fim.
+
 ### A máscara de log filtra por nome, não por tipo
 
 O vazamento típico não é alguém logando um objeto de domínio inteiro. É um
@@ -210,9 +243,10 @@ nenhuma ocorrência.
 
 ## O que ainda não está aqui
 
-- Motor de regras, política versionada e laudo da decisão.
-- Cálculo de parcelas em Price e SAC.
-- Contratação, cronograma e liquidação.
+- Motor de regras, política versionada e laudo da decisão. Enquanto ele não existe, a
+  simulação recebe a taxa como parâmetro; depois ela sai da faixa de score da política
+  vigente.
+- Contratação, cronograma persistido e liquidação.
 - Autenticação e papéis. Enquanto não existirem, a renda fica fora de toda resposta.
 - Atrás de proxy, o limite de submissão precisa de `ForwardedHeaders` com a lista de
   proxies confiáveis, senão o IP vira o do balanceador e o limite passa a valer para todo
