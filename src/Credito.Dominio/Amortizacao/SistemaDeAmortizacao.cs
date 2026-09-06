@@ -1,4 +1,4 @@
-namespace Credito.Dominio.Propostas;
+namespace Credito.Dominio.Amortizacao;
 
 public enum SistemaDeAmortizacao
 {
