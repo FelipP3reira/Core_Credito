@@ -26,6 +26,7 @@ internal static class EndpointsDePropostas
         propostas.MapGet("/{id:guid}", Detalhar);
         propostas.MapGet("/{id:guid}/auditoria", Auditar);
         propostas.MapGet("/", Listar);
+        propostas.MapGet("/resumo", Resumir);
         propostas.MapPost("/busca", Buscar).RequireRateLimiting(PoliticaDeBusca);
     }
 
@@ -96,6 +97,17 @@ internal static class EndpointsDePropostas
     /// registro de acesso e historico. Busca por CPF tem rota propria, com o numero
     /// no corpo.
     /// </remarks>
+    /// <remarks>
+    /// Nao colide com a consulta de uma proposta: aquela rota exige um GUID no lugar do
+    /// id, e "resumo" nao e um.
+    /// </remarks>
+    private static async Task<IResult> Resumir(
+        ResumirCarteira resumir,
+        CancellationToken cancelamento,
+        DateTimeOffset? de = null,
+        DateTimeOffset? ate = null) =>
+        Results.Ok(await resumir.Executar(de, ate, cancelamento).ConfigureAwait(false));
+
     private static async Task<IResult> Auditar(
         Guid id,
         MontarAuditoria montar,
