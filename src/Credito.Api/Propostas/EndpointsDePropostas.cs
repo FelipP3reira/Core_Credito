@@ -24,6 +24,7 @@ internal static class EndpointsDePropostas
         propostas.MapPost("/{id:guid}/simulacao", Simular);
         propostas.MapPost("/{id:guid}/cancelamento", Cancelar);
         propostas.MapGet("/{id:guid}", Detalhar);
+        propostas.MapGet("/{id:guid}/auditoria", Auditar);
         propostas.MapGet("/", Listar);
         propostas.MapPost("/busca", Buscar).RequireRateLimiting(PoliticaDeBusca);
     }
@@ -95,6 +96,12 @@ internal static class EndpointsDePropostas
     /// registro de acesso e historico. Busca por CPF tem rota propria, com o numero
     /// no corpo.
     /// </remarks>
+    private static async Task<IResult> Auditar(
+        Guid id,
+        MontarAuditoria montar,
+        CancellationToken cancelamento) =>
+        Results.Ok(await montar.Executar(id, cancelamento).ConfigureAwait(false));
+
     private static async Task<IResult> Listar(
         ListarPropostas listar,
         CancellationToken cancelamento,

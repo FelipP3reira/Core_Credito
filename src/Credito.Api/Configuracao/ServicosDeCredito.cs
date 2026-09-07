@@ -46,6 +46,7 @@ internal static class ServicosDeCredito
         servicos.AddScoped<CadastrarProposta>();
         servicos.AddScoped<ConsultarProposta>();
         servicos.AddScoped<ListarPropostas>();
+        servicos.AddScoped<MontarAuditoria>();
         servicos.AddScoped<SimularProposta>();
         servicos.AddScoped<AnalisarProposta>();
         servicos.AddScoped<CancelarProposta>();
