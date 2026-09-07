@@ -8,6 +8,8 @@ namespace Credito.Infraestrutura.Persistencia.Configuracoes;
 
 internal sealed class ContratoConfiguracao : IEntityTypeConfiguration<Contrato>
 {
+    private const int TamanhoMaximoDaChave = 100;
+
     public void Configure(EntityTypeBuilder<Contrato> contrato)
     {
         ArgumentNullException.ThrowIfNull(contrato);
@@ -33,6 +35,14 @@ internal sealed class ContratoConfiguracao : IEntityTypeConfiguration<Contrato>
         contrato.Property(linha => linha.TaxaMensal).HasPrecision(9, 6);
         contrato.Property(linha => linha.Sistema).HasConversion<int>();
         contrato.Property(linha => linha.PrimeiroVencimento).HasColumnType("date");
+        contrato.Property(linha => linha.ChaveDoDesembolso).HasMaxLength(TamanhoMaximoDaChave);
+
+        // Indice filtrado: a pergunta operacional e "quais contratos com conta ainda nao
+        // desembolsaram", e indexar as linhas ja desembolsadas so pagaria escrita pelas
+        // linhas que essa busca nunca procura.
+        contrato.HasIndex(linha => linha.ContaId)
+            .HasFilter("[ContaId] IS NOT NULL AND [DesembolsadoEm] IS NULL")
+            .HasDatabaseName("IX_Contratos_ContaSemDesembolso");
 
         contrato.HasMany(linha => linha.Parcelas)
             .WithOne()
@@ -47,6 +57,7 @@ internal sealed class ContratoConfiguracao : IEntityTypeConfiguration<Contrato>
         contrato.Ignore(linha => linha.EstaQuitado);
         contrato.Ignore(linha => linha.TotalPago);
         contrato.Ignore(linha => linha.SaldoAberto);
+        contrato.Ignore(linha => linha.EstaDesembolsado);
     }
 }
 
