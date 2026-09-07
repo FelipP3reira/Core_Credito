@@ -72,6 +72,7 @@ aplicacao.UseRateLimiter();
 
 aplicacao.MapearPropostas();
 aplicacao.MapearContratos();
+aplicacao.MapearContratosDaConta();
 
 await aplicacao.RunAsync().ConfigureAwait(false);
 

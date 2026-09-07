@@ -43,6 +43,7 @@ internal static class ServicosDeCredito
         servicos.AddSingleton<IProtetorDeCpf, ProtetorDeCpf>();
         servicos.AddScoped<IRepositorioDePropostas, RepositorioDePropostas>();
         servicos.AddScoped<IConsultaDePropostas, ConsultaDePropostas>();
+        servicos.AddScoped<IConsultaDeContratos, ConsultaDeContratos>();
 
         servicos.AddScoped<CadastrarProposta>();
         servicos.AddScoped<ConsultarProposta>();
@@ -62,6 +63,7 @@ internal static class ServicosDeCredito
         servicos.AddScoped<RegistrarPagamento>();
         servicos.AddScoped<DesembolsarContrato>();
         servicos.AddScoped<ConsultarContrato>();
+        servicos.AddScoped<ListarContratosDaConta>();
         servicos.AddSingleton<IConsultaDeBureau, BureauSimulado>();
 
         // Registrados pela interface para o resolvedor receber todos de uma vez: sistema
