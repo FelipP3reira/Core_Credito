@@ -14,6 +14,4 @@ public interface IRepositorioDePropostas
     /// deixaria uma janela entre as duas operacoes por onde dois envios simultaneos passam.
     /// </summary>
     Task<ResultadoDaInsercao> InserirSeNova(Proposta proposta, CancellationToken cancelamento);
-
-    Task Salvar(CancellationToken cancelamento);
 }
