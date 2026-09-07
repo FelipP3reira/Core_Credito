@@ -21,6 +21,7 @@ POST /propostas/{id}/analise           decide e grava o laudo
 POST /propostas/{id}/simulacao         mostra o cronograma que essa proposta teria
 POST /propostas/{id}/cancelamento      desiste, enquanto não houver decisão
 POST /propostas/{id}/contrato          assina e congela o cronograma
+POST /propostas/{id}/contrato/desembolso               credita o valor na conta do cliente
 POST /propostas/{id}/contrato/parcelas/{n}/pagamento   quita uma parcela
 
 GET  /propostas/{id}                   detalhe, trilha de estados e laudo
@@ -30,6 +31,11 @@ GET  /propostas                        lista paginada por cursor, filtrando esta
 GET  /propostas/resumo                 contagem e volume por estado
 POST /propostas/busca                  procura por CPF, com o número no corpo
 ```
+
+Quando a contratação informa uma conta da [Plataforma Bancária](https://github.com/FelipP3reira/Plataforma_Bancaria),
+o empréstimo vira produto dessa conta: o valor financiado entra por depósito e cada parcela
+paga sai por saque. Sem conta informada, o contrato existe do mesmo jeito e a liquidação
+acontece por fora.
 
 O que já está escrito está testado; o que falta está listado no fim.
 
@@ -50,6 +56,17 @@ openssl rand -base64 32   # ProtecaoDeCpf__ChaveDeCifra - precisa ter exatamente
 
 A senha do SA aparece duas vezes no arquivo: em `SENHA_SA`, que o compose usa ao criar o
 container, e dentro de `ConnectionStrings__Banco`. Têm que ser a mesma.
+
+E aponte para a Plataforma Bancária, que guarda a conta do cliente:
+
+```
+ContaBancaria__BaseUrl=http://localhost:5240
+```
+
+O endereço é validado na subida. Endereço errado descoberto na primeira contratação seria
+um desembolso falhando em produção para dizer o que um arquivo de configuração já podia ter
+dito. A API sobe sem a Plataforma Bancária no ar — só o desembolso e a cobrança de parcela
+deixam de funcionar, e devolvem 502 dizendo isso.
 
 ```bash
 docker compose up -d
@@ -363,6 +380,83 @@ Omitir os estados vazios obrigaria quem lê a adivinhar se "não veio `Negada`" 
 nenhuma negativa ou um estado que o relatório desconhece. A segunda leitura é a que passa
 despercebida, então o resumo devolve sempre os oito, com zero onde não houve nada.
 
+## O empréstimo como produto da conta
+
+A contratação aceita um `contaId` da Plataforma Bancária. A partir daí os dois sistemas
+conversam por HTTP: o crédito decide e registra a dívida, o banco guarda o dinheiro.
+
+```
+contrata (contaId)  ->  desembolsa  ->  POST /contas/{id}/depositos    +10.000,00
+paga a parcela 1    ->  cobra       ->  POST /contas/{id}/saques        -1.779,24
+```
+
+### São dois serviços, e o desenho assume isso
+
+Não existe transação cobrindo os dois bancos de dados. Fingir que existe — gravar o
+contrato e creditar a conta como se fossem uma coisa só — não elimina o problema, apenas
+esconde a hora em que ele aparece: a chamada de rede pode falhar depois de o dinheiro ter
+entrado, e o rollback local não desfaz o depósito do outro lado.
+
+O que existe no lugar é **chave de idempotência derivada do contrato**:
+
+```
+credito:desembolso:{contratoId}
+credito:parcela:{contratoId}:{numero}
+```
+
+Derivada, e nunca sorteada. É isso que faz uma nova tentativa encontrar o lançamento que já
+existe em vez de creditar o empréstimo pela segunda vez. Chave sorteada a cada tentativa
+faria exatamente o contrário — e o bug só apareceria no dia em que a rede oscilasse.
+
+### O desembolso é uma rota separada da contratação
+
+Assinar grava aqui; creditar grava no banco. Separando os dois passos, cada um pode ser
+repetido até dar certo, e **contrato assinado e não desembolsado vira um estado visível** —
+tem coluna, tem índice filtrado, dá para listar — em vez de uma inconsistência escondida.
+
+Esta rota não aceita `Idempotency-Key` do cliente, ao contrário de todas as outras. A chave
+precisa ser sempre a mesma para o mesmo contrato, e chave escolhida por quem chama
+permitiria dois desembolsos com chaves diferentes.
+
+### A ordem é banco primeiro, gravação depois
+
+O que mantém a parcela em aberto quando o débito é recusado não é a ordem das linhas: é o
+`Salvar` só acontecer depois de o banco confirmar. Enquanto a confirmação não chega, nada
+foi gravado aqui.
+
+Isso foi verificado quebrando: mover o `Salvar` para antes da cobrança faz dois testes
+falharem, com a parcela quitada sem ninguém ter pago. Já trocar apenas a ordem das duas
+linhas não quebra nada — e essa era a explicação errada que estava escrita no comentário
+antes de o teste desmenti-la.
+
+### Recusa e indisponibilidade não são a mesma coisa
+
+| O banco respondeu | Vira | Repetir adianta? |
+|---|---|---|
+| 4xx — saldo insuficiente, conta bloqueada, conta inexistente | 409 `A conta bancária recusou` | Não. É decisão do outro lado. |
+| 5xx, tempo esgotado, rede fora | 502 `Plataforma bancária indisponível` | Sim, e com a chave derivada é seguro. |
+
+Juntar as duas numa só faria quem está na ponta tratar "o cliente não tem saldo" com nova
+tentativa, e "a rede caiu" como erro definitivo. As duas ações estariam trocadas.
+
+### Cobrar parcela de contrato não desembolsado é recusado
+
+Contrato que tem conta e nunca desembolsou não cobra: seria cobrar por um empréstimo que o
+cliente não recebeu. Contrato **sem** conta continua pagando normalmente, sem tocar no
+banco — o comportamento anterior não mudou.
+
+### O dublê dos testes e a conferência de verdade
+
+A suíte de integração substitui a Plataforma Bancária por um dublê que reproduz o que o
+crédito depende: a chave devolvendo o mesmo lançamento e a recusa por saldo. Subir o outro
+serviço dentro desta suíte faria cada teste de crédito depender de um segundo container e
+de um segundo banco.
+
+O que o dublê não prova — que o cliente HTTP fala o dialeto certo — foi conferido com os
+dois serviços no ar, ponta a ponta: conta aberta, proposta analisada, contratada com a
+conta, desembolsada, desembolsada de novo (200 e saldo intacto), parcela cobrada, saldo
+gasto, segunda parcela recusada com 409 e o extrato do banco mostrando as duas pernas.
+
 ## Decisões e trade-offs
 
 ### O agregado não guarda o CPF em texto claro
@@ -529,8 +623,13 @@ nenhuma ocorrência.
   troca é só no registro de dependências.
 - Cadastro de nova versão de política pela API. Hoje a versão 1 vem semeada na migração e
   uma versão nova exigiria migração ou inserção manual.
-- Cobrança de fato: boleto, Pix, conciliação. O sistema registra que a parcela foi paga,
-  mas não é quem recebe.
+- Cobrança de fato: boleto, Pix. O débito na conta da Plataforma Bancária cobre o caso em
+  que o cliente é correntista; quem paga por fora ainda entra como registro manual.
+- Reconciliação entre os dois serviços. Hoje cada tentativa se acerta sozinha por chave
+  derivada, mas não existe rotina que varra contratos com conta e sem desembolso — o índice
+  filtrado que responderia essa pergunta já está criado.
+- Estorno do desembolso. Contrato cancelado depois de desembolsado precisaria devolver o
+  dinheiro, e isso hoje é operação manual no banco.
 - Juros e multa por atraso. A parcela vencida e não paga é consultável pelo índice de
   vencimento, mas nada cobra encargo sobre ela.
 - Autenticação e papéis. Enquanto não existirem, a renda fica fora de toda resposta.
