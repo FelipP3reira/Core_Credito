@@ -67,5 +67,14 @@ internal sealed class PropostaConfiguracao : IEntityTypeConfiguration<Proposta>
         proposta.Metadata
             .FindNavigation(nameof(Proposta.Transicoes))!
             .SetPropertyAccessMode(PropertyAccessMode.Field);
+
+        proposta.HasMany(linha => linha.Decisoes)
+            .WithOne()
+            .HasForeignKey(decisao => decisao.PropostaId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        proposta.Metadata
+            .FindNavigation(nameof(Proposta.Decisoes))!
+            .SetPropertyAccessMode(PropertyAccessMode.Field);
     }
 }
