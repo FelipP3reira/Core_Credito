@@ -4,6 +4,7 @@ using Credito.Api.Configuracao;
 using Credito.Api.Contratos;
 using Credito.Api.Propostas;
 using Credito.Infraestrutura.Observabilidade;
+using Scalar.AspNetCore;
 using Serilog;
 
 // Em desenvolvimento os segredos vem do .env; em producao, das variaveis de ambiente
@@ -25,6 +26,7 @@ construtor.Services.AddSerilog((servicos, registro) => registro
 construtor.Services.ConfigureHttpJsonOptions(opcoes =>
     opcoes.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
+construtor.Services.AddOpenApi();
 construtor.Services.AdicionarCredito(construtor.Configuration);
 
 var aplicacao = construtor.Build();
@@ -36,6 +38,18 @@ var aplicacao = construtor.Build();
 aplicacao.UseSerilogRequestLogging();
 
 aplicacao.UseExceptionHandler();
+
+// Documentacao navegavel so fora de producao. O contrato da API nao e segredo, mas uma
+// interface que dispara requisicao de verdade nao precisa estar exposta no servidor que
+// decide concessao de credito.
+if (aplicacao.Environment.IsDevelopment())
+{
+    aplicacao.MapOpenApi();
+    aplicacao.MapScalarApiReference("/docs", opcoes => opcoes.WithTitle("Core de Credito"));
+
+    // A raiz existe so para nao devolver 404 a quem abre o endereco no navegador.
+    aplicacao.MapGet("/", () => Results.Redirect("/docs")).ExcludeFromDescription();
+}
 
 if (!aplicacao.Environment.IsDevelopment())
 {
