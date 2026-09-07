@@ -10,20 +10,22 @@ requisições simultâneas e CPF que não aparece em log nem em coluna de banco.
 
 ## Estado atual
 
-A proposta nasce, é analisada e recebe um laudo dizendo regra a regra por que foi aprovada
-ou negada — com idempotência, validação, limite de submissão e proteção do CPF já no lugar.
-O cálculo de parcelas existe nos dois sistemas, Price e SAC, e a taxa sai da faixa de score
-da política vigente.
+O ciclo fecha: a proposta nasce, é analisada e recebe um laudo dizendo regra a regra por
+que foi aprovada ou negada, é contratada com o cronograma congelado, e liquida sozinha
+quando a última parcela cai.
 
 ```
-POST /propostas               cadastra em rascunho (exige Idempotency-Key)
-POST /propostas/{id}/analise  decide e grava o laudo
-POST /propostas/{id}/simulacao mostra o cronograma que essa proposta teria
-GET  /propostas/{id}          detalhe, trilha de estados e laudo
+POST /propostas                        cadastra em rascunho (exige Idempotency-Key)
+POST /propostas/{id}/analise           decide e grava o laudo
+POST /propostas/{id}/simulacao         mostra o cronograma que essa proposta teria
+POST /propostas/{id}/cancelamento      desiste, enquanto não houver decisão
+GET  /propostas/{id}                   detalhe, trilha de estados e laudo
+POST /propostas/{id}/contrato          assina e congela o cronograma
+GET  /propostas/{id}/contrato          cronograma com vencimentos e pagamentos
+POST /propostas/{id}/contrato/parcelas/{n}/pagamento   quita uma parcela
 ```
 
-A contratação ainda não existe. O que já está escrito está testado; o que falta está
-listado no fim.
+O que já está escrito está testado; o que falta está listado no fim.
 
 ## Como rodar
 
@@ -74,8 +76,8 @@ entra pela `Aplicacao`. A `Api` só encosta na `Infraestrutura` no `Program.cs`,
 amarrar a injeção de dependência.
 
 O domínio não referencia EF, ASP.NET nem nada da Microsoft. É isso que permite testar
-regra de negócio sem subir banco — e é por isso que 2.890 dos 2.921 testes rodam em
-pouco mais de um segundo. Só os 31 de integração precisam de Docker.
+regra de negócio sem subir banco — e é por isso que 2.920 dos 2.974 testes rodam em pouco
+mais de um segundo. Só os 54 de integração precisam de Docker.
 
 ## Máquina de estados
 
@@ -175,6 +177,67 @@ A porta recebe o CPF em texto claro de propósito: birô de verdade precisa do n
 deixar isso na assinatura obriga quem chama a passar por `Revelar` — que é justamente o
 ponto que uma revisão de segurança quer encontrar de primeira. A integração real entra
 trocando a classe no registro de dependências, sem tocar em nada do domínio.
+
+## A contratação
+
+Até a assinatura, o cronograma é projeção: recalculado a cada consulta com a taxa da
+política vigente naquele instante. Na contratação ele vira dívida, e por isso é gravado
+parcela a parcela. Política que mude depois não altera contrato já assinado.
+
+### A taxa contratada é a da decisão, não a de hoje
+
+A proposta foi aprovada sob uma condição e é essa que se contrata. Política que mudou entre
+a análise e a assinatura vale para a próxima análise, não para uma aprovação já dada. Há
+teste que muda o score do birô entre os dois passos e exige que a taxa do contrato não se
+mexa.
+
+### Vencimento soma meses, não trinta dias
+
+Parcela vence no mesmo dia do mês. Somar trinta dias corridos faria a data escorregar
+progressivamente — três parcelas depois já não é mais o mesmo dia. `AddMonths` ainda encurta
+o dia quando o mês seguinte não o tem, então um vencimento em 31 de janeiro cai em 28 de
+fevereiro e volta a 31 em março, em vez de virar 3 de março para sempre.
+
+### A liquidação não é um botão
+
+Acontece quando a última parcela cai. A conferência do estado deixa o reenvio do mesmo
+pagamento inofensivo: a segunda vez encontra o contrato já quitado e a proposta já
+liquidada, e não faz nada.
+
+`Liquidar` exige o contrato quitado na própria assinatura. Sem essa conferência, bastaria
+chamar o método para dar uma dívida aberta como paga.
+
+### Pagamento carrega chave, e a chave fica guardada
+
+Reenvio com a mesma chave é repetição e não muda nada; chave diferente sobre parcela já paga
+é recusado. Sem guardar a chave só daria para responder "já está paga" — e o cliente que
+perdeu a resposta por timeout não saberia se foi ele mesmo quem pagou.
+
+Pagar fora de ordem é aceito: quem antecipa a última parcela não deveria ser barrado.
+
+### Cancelar só vale antes de haver decisão
+
+Depois de aprovada ou negada existe laudo, e cancelar apagaria o motivo de uma decisão já
+tomada. Para aprovação que o solicitante não quer mais, o caminho é deixar expirar.
+
+### A aprovação expira quando alguém tenta usá-la
+
+Taxa aprovada tem prazo — contratar hoje uma aprovação de seis meses atrás seria conceder
+crédito com condição que ninguém mais ofereceria. A validade é campo da política.
+
+A expiração acontece no momento da tentativa de contratação, e não por varredura periódica.
+É o único momento em que a diferença importa, e evita um processo de fundo cuja única função
+seria mudar um estado que ninguém estava olhando.
+
+### O contrato não é navegação da proposta
+
+A chave estrangeira existe, mas sem navegação do lado da proposta. Carregar uma proposta
+para analisá-la não pode arrastar noventa e seis parcelas junto.
+
+Como a contratação mexe em dois repositórios, o `Salvar` saiu de dentro deles e virou uma
+unidade de trabalho explícita. Com um `Salvar` em cada repositório ficaria ambíguo quem de
+fato grava, e a resposta certa — os dois compartilham o mesmo contexto, um `Salvar` basta —
+só era descobrível lendo a infraestrutura.
 
 ## Decisões e trade-offs
 
@@ -332,13 +395,14 @@ nenhuma ocorrência.
 
 ## O que ainda não está aqui
 
-- Contratação, cronograma persistido e liquidação.
 - Integração com birô de crédito de verdade. Hoje há um substituto determinístico, e a
   troca é só no registro de dependências.
 - Cadastro de nova versão de política pela API. Hoje a versão 1 vem semeada na migração e
   uma versão nova exigiria migração ou inserção manual.
-- Expiração automática de proposta aprovada. O estado existe na máquina, mas nada o
-  dispara ainda.
+- Cobrança de fato: boleto, Pix, conciliação. O sistema registra que a parcela foi paga,
+  mas não é quem recebe.
+- Juros e multa por atraso. A parcela vencida e não paga é consultável pelo índice de
+  vencimento, mas nada cobra encargo sobre ela.
 - Autenticação e papéis. Enquanto não existirem, a renda fica fora de toda resposta.
 - Atrás de proxy, o limite de submissão precisa de `ForwardedHeaders` com a lista de
   proxies confiáveis, senão o IP vira o do balanceador e o limite passa a valer para todo
