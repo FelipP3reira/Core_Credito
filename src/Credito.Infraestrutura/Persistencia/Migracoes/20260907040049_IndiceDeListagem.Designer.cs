@@ -4,6 +4,7 @@ using Credito.Infraestrutura.Persistencia;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Credito.Infraestrutura.Persistencia.Migracoes
 {
     [DbContext(typeof(ContextoDeCredito))]
-    partial class ContextoDeCreditoModelSnapshot : ModelSnapshot
+    [Migration("20260907040049_IndiceDeListagem")]
+    partial class IndiceDeListagem
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

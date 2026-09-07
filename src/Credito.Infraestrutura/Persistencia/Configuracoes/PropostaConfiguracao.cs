@@ -34,6 +34,14 @@ internal sealed class PropostaConfiguracao : IEntityTypeConfiguration<Proposta>
             .IsUnique()
             .HasDatabaseName("IX_Propostas_ChaveIdempotencia");
 
+        // A listagem ordena por CriadaEm e desempata pelo Id, e o marcador de pagina
+        // corta pelos mesmos dois campos na mesma ordem. Sem um indice com essa forma
+        // exata, toda pagina vira varredura da tabela seguida de ordenacao — paginacao
+        // por cursor sem indice de apoio e a mesma leitura completa com outro nome.
+        proposta.HasIndex(linha => new { linha.CriadaEm, linha.Id })
+            .IsDescending(true, true)
+            .HasDatabaseName("IX_Propostas_CriadaEm_Id");
+
         proposta.OwnsOne(linha => linha.Cpf, cpf =>
         {
             cpf.Property(valor => valor.Hash).HasColumnName("CpfHash").HasMaxLength(64).IsRequired();
