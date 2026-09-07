@@ -2,6 +2,7 @@ using System.Threading.RateLimiting;
 using Credito.Api.Erros;
 using Credito.Api.Propostas;
 using Credito.Aplicacao.Analises;
+using Credito.Aplicacao.Consultas;
 using Credito.Aplicacao.Contratos;
 using Credito.Aplicacao.Portas;
 using Credito.Dominio.Amortizacao;
@@ -35,13 +36,18 @@ internal static class ServicosDeCredito
 
         servicos.Configure<OpcoesDeProtecaoDeCpf>(configuracao.GetSection(OpcoesDeProtecaoDeCpf.Secao));
         servicos.Configure<LimiteDeSubmissao>(configuracao.GetSection(LimiteDeSubmissao.Secao));
+        servicos.Configure<LimiteDeBusca>(configuracao.GetSection(LimiteDeBusca.Secao));
 
         servicos.AddSingleton(TimeProvider.System);
         servicos.AddSingleton<IProtetorDeCpf, ProtetorDeCpf>();
         servicos.AddScoped<IRepositorioDePropostas, RepositorioDePropostas>();
+        servicos.AddScoped<IConsultaDePropostas, ConsultaDePropostas>();
 
         servicos.AddScoped<CadastrarProposta>();
         servicos.AddScoped<ConsultarProposta>();
+        servicos.AddScoped<ListarPropostas>();
+        servicos.AddScoped<MontarAuditoria>();
+        servicos.AddScoped<ResumirCarteira>();
         servicos.AddScoped<SimularProposta>();
         servicos.AddScoped<AnalisarProposta>();
         servicos.AddScoped<CancelarProposta>();
@@ -77,34 +83,16 @@ internal static class ServicosDeCredito
         servicos.AddProblemDetails();
         servicos.AddExceptionHandler<TratamentoDeErrosDeDominio>();
 
-        return servicos.AdicionarLimiteDeSubmissao();
+        return servicos.AdicionarLimitesPorIp();
     }
 
-    private static IServiceCollection AdicionarLimiteDeSubmissao(this IServiceCollection servicos) =>
+    private static IServiceCollection AdicionarLimitesPorIp(this IServiceCollection servicos) =>
         servicos.AddRateLimiter(limitador =>
         {
             limitador.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-            limitador.AddPolicy(EndpointsDePropostas.PoliticaDeLimite, contexto =>
-            {
-                // Lido por requisicao pelo mesmo motivo da string de conexao. O limitador
-                // de cada particao e criado uma vez e guardado, entao mudar o valor em
-                // tempo de execucao so vale para particao que ainda nao apareceu.
-                var limite = contexto.RequestServices
-                    .GetRequiredService<IOptionsMonitor<LimiteDeSubmissao>>().CurrentValue;
-
-                return RateLimitPartition.GetFixedWindowLimiter(
-                    Identificar(contexto),
-                    _ => new FixedWindowRateLimiterOptions
-                    {
-                        PermitLimit = limite.Permitidas,
-                        Window = TimeSpan.FromSeconds(limite.JanelaEmSegundos),
-
-                        // Fila zero: quem passou do limite recebe 429 na hora. Enfileirar
-                        // so empurraria a espera para o cliente sem aliviar o servidor.
-                        QueueLimit = 0,
-                    });
-            });
+            limitador.PorIp<LimiteDeSubmissao>(EndpointsDePropostas.PoliticaDeSubmissao);
+            limitador.PorIp<LimiteDeBusca>(EndpointsDePropostas.PoliticaDeBusca);
 
             limitador.OnRejected = async (contexto, cancelamento) =>
             {
@@ -116,10 +104,37 @@ internal static class ServicosDeCredito
 
                 await contexto.HttpContext.Response
                     .WriteAsJsonAsync(
-                        new { titulo = "Pedidos demais", detalhe = "Espere um pouco antes de enviar outra proposta." },
+                        new { titulo = "Pedidos demais", detalhe = "Espere um pouco antes de tentar de novo." },
                         cancelamento)
                     .ConfigureAwait(false);
             };
+        });
+
+    /// <remarks>
+    /// Cada politica tem o proprio conjunto de particoes, entao os dois limites contam
+    /// separado mesmo partindo do mesmo IP.
+    /// </remarks>
+    private static void PorIp<TLimite>(this RateLimiterOptions limitador, string politica)
+        where TLimite : LimiteDeRequisicoes =>
+        limitador.AddPolicy(politica, contexto =>
+        {
+            // Lido por requisicao pelo mesmo motivo da string de conexao. O limitador
+            // de cada particao e criado uma vez e guardado, entao mudar o valor em
+            // tempo de execucao so vale para particao que ainda nao apareceu.
+            var limite = contexto.RequestServices
+                .GetRequiredService<IOptionsMonitor<TLimite>>().CurrentValue;
+
+            return RateLimitPartition.GetFixedWindowLimiter(
+                Identificar(contexto),
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = limite.Permitidas,
+                    Window = TimeSpan.FromSeconds(limite.JanelaEmSegundos),
+
+                    // Fila zero: quem passou do limite recebe 429 na hora. Enfileirar
+                    // so empurraria a espera para o cliente sem aliviar o servidor.
+                    QueueLimit = 0,
+                });
         });
 
     /// <remarks>

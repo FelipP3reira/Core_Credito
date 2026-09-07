@@ -1,4 +1,6 @@
 using Credito.Aplicacao.Analises;
+using Credito.Aplicacao.Consultas;
+using Credito.Dominio.Propostas;
 using Credito.Aplicacao.Propostas;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
@@ -7,7 +9,8 @@ namespace Credito.Api.Propostas;
 
 internal static class EndpointsDePropostas
 {
-    public const string PoliticaDeLimite = "submissao-de-proposta";
+    public const string PoliticaDeSubmissao = "submissao-de-proposta";
+    public const string PoliticaDeBusca = "busca-por-cpf";
 
     private const string CabecalhoDeIdempotencia = "Idempotency-Key";
     private const int TamanhoMaximoDaChave = 64;
@@ -16,11 +19,15 @@ internal static class EndpointsDePropostas
     {
         var propostas = rotas.MapGroup("/propostas").WithTags("Propostas");
 
-        propostas.MapPost("/", Cadastrar).RequireRateLimiting(PoliticaDeLimite);
+        propostas.MapPost("/", Cadastrar).RequireRateLimiting(PoliticaDeSubmissao);
         propostas.MapPost("/{id:guid}/analise", Analisar);
         propostas.MapPost("/{id:guid}/simulacao", Simular);
         propostas.MapPost("/{id:guid}/cancelamento", Cancelar);
         propostas.MapGet("/{id:guid}", Detalhar);
+        propostas.MapGet("/{id:guid}/auditoria", Auditar);
+        propostas.MapGet("/", Listar);
+        propostas.MapGet("/resumo", Resumir);
+        propostas.MapPost("/busca", Buscar).RequireRateLimiting(PoliticaDeBusca);
     }
 
     private static async Task<IResult> Cadastrar(
@@ -84,6 +91,75 @@ internal static class EndpointsDePropostas
         CancelarProposta cancelar,
         CancellationToken cancelamento) =>
         Results.Ok(new RespostaDeCadastro(id, await cancelar.Executar(id, cancelamento).ConfigureAwait(false)));
+
+    /// <remarks>
+    /// Sem CPF entre os filtros: aqui ele viraria cadeia de consulta e apareceria em
+    /// registro de acesso e historico. Busca por CPF tem rota propria, com o numero
+    /// no corpo.
+    /// </remarks>
+    /// <remarks>
+    /// Nao colide com a consulta de uma proposta: aquela rota exige um GUID no lugar do
+    /// id, e "resumo" nao e um.
+    /// </remarks>
+    private static async Task<IResult> Resumir(
+        ResumirCarteira resumir,
+        CancellationToken cancelamento,
+        DateTimeOffset? de = null,
+        DateTimeOffset? ate = null) =>
+        Results.Ok(await resumir.Executar(de, ate, cancelamento).ConfigureAwait(false));
+
+    private static async Task<IResult> Auditar(
+        Guid id,
+        MontarAuditoria montar,
+        CancellationToken cancelamento) =>
+        Results.Ok(await montar.Executar(id, cancelamento).ConfigureAwait(false));
+
+    private static async Task<IResult> Listar(
+        ListarPropostas listar,
+        CancellationToken cancelamento,
+        EstadoDaProposta? estado = null,
+        DateTimeOffset? de = null,
+        DateTimeOffset? ate = null,
+        string? cursor = null,
+        int? tamanho = null) =>
+        Results.Ok(await listar
+            .Executar(new PedidoDeListagem(estado, de, ate, Cpf: null, cursor, tamanho), cancelamento)
+            .ConfigureAwait(false));
+
+    /// <remarks>
+    /// POST porque o CPF vai no corpo. Nao e uma escrita disfarcada: e o unico jeito de
+    /// procurar por CPF sem deixa-lo em registro de acesso, historico de navegador e
+    /// cache de intermediario, que e onde a URL de um GET termina.
+    /// </remarks>
+    private static async Task<IResult> Buscar(
+        PedidoDeBusca pedido,
+        ListarPropostas listar,
+        CancellationToken cancelamento)
+    {
+        ArgumentNullException.ThrowIfNull(pedido);
+
+        // Sem CPF isto viraria a listagem inteira por uma rota que nao tem esse contrato
+        // — e que gasta o limite da busca em vez do limite da listagem.
+        if (string.IsNullOrWhiteSpace(pedido.Cpf))
+        {
+            return Results.Problem(
+                title: "CPF obrigatorio",
+                detail: "Envie o CPF no corpo do pedido de busca.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        return Results.Ok(await listar
+            .Executar(
+                new PedidoDeListagem(
+                    pedido.Estado,
+                    pedido.De,
+                    pedido.Ate,
+                    pedido.Cpf,
+                    pedido.Cursor,
+                    pedido.Tamanho),
+                cancelamento)
+            .ConfigureAwait(false));
+    }
 
     private static async Task<IResult> Detalhar(
         Guid id,

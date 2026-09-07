@@ -12,17 +12,23 @@ requisições simultâneas e CPF que não aparece em log nem em coluna de banco.
 
 O ciclo fecha: a proposta nasce, é analisada e recebe um laudo dizendo regra a regra por
 que foi aprovada ou negada, é contratada com o cronograma congelado, e liquida sozinha
-quando a última parcela cai.
+quando a última parcela cai. Tudo isso é consultável depois — proposta a proposta, por CPF,
+em lista paginada, e como uma trilha de auditoria que conta a história inteira em ordem.
 
 ```
 POST /propostas                        cadastra em rascunho (exige Idempotency-Key)
 POST /propostas/{id}/analise           decide e grava o laudo
 POST /propostas/{id}/simulacao         mostra o cronograma que essa proposta teria
 POST /propostas/{id}/cancelamento      desiste, enquanto não houver decisão
-GET  /propostas/{id}                   detalhe, trilha de estados e laudo
 POST /propostas/{id}/contrato          assina e congela o cronograma
-GET  /propostas/{id}/contrato          cronograma com vencimentos e pagamentos
 POST /propostas/{id}/contrato/parcelas/{n}/pagamento   quita uma parcela
+
+GET  /propostas/{id}                   detalhe, trilha de estados e laudo
+GET  /propostas/{id}/contrato          cronograma com vencimentos e pagamentos
+GET  /propostas/{id}/auditoria         a vida da proposta numa linha do tempo só
+GET  /propostas                        lista paginada por cursor, filtrando estado e período
+GET  /propostas/resumo                 contagem e volume por estado
+POST /propostas/busca                  procura por CPF, com o número no corpo
 ```
 
 O que já está escrito está testado; o que falta está listado no fim.
@@ -76,8 +82,8 @@ entra pela `Aplicacao`. A `Api` só encosta na `Infraestrutura` no `Program.cs`,
 amarrar a injeção de dependência.
 
 O domínio não referencia EF, ASP.NET nem nada da Microsoft. É isso que permite testar
-regra de negócio sem subir banco — e é por isso que 2.920 dos 2.974 testes rodam em pouco
-mais de um segundo. Só os 54 de integração precisam de Docker.
+regra de negócio sem subir banco — e é por isso que 2.929 dos 3.014 testes rodam em pouco
+mais de um segundo. Só os 85 de integração precisam de Docker.
 
 ## Máquina de estados
 
@@ -239,6 +245,124 @@ unidade de trabalho explícita. Com um `Salvar` em cada repositório ficaria amb
 fato grava, e a resposta certa — os dois compartilham o mesmo contexto, um `Salvar` basta —
 só era descobrível lendo a infraestrutura.
 
+## Consulta e auditoria
+
+Um sistema de crédito é lido muito mais vezes do que é escrito, e quase toda leitura é
+alguém prestando contas: um analista procurando a proposta de um CPF, um auditor querendo
+saber por que aquela negativa aconteceu, um gestor olhando quanto da carteira está em cada
+estado.
+
+### A leitura em lote não passa pelo agregado
+
+Carregar `Proposta` para listar traria histórico, laudo e avaliações junto — três coleções
+filhas por linha, num produto cartesiano que vira centenas de linhas de banco para exibir
+vinte. E nada disso seria usado: listagem não tem comportamento, só mostra.
+
+A listagem e o resumo passam por uma porta de leitura própria, que projeta direto para o
+formato da resposta. O agregado continua sendo o único caminho de escrita — o que muda é
+que ele deixou de ser também o único caminho de leitura.
+
+O resumo agrupa no banco. Trazer as linhas para contar em memória colocaria a carteira
+inteira dentro do processo só para devolver oito números.
+
+### Paginação por marcador, e por que o id sozinho não serve
+
+`OFFSET`/`FETCH` manda o banco ler e jogar fora tudo que veio antes — a página cinquenta
+custa cinquenta páginas de leitura — e ainda repete ou pula linhas quando alguém cadastra
+uma proposta no meio da varredura, porque o deslocamento se refere a uma lista que mudou
+de tamanho.
+
+O corte é por marcador: instante de criação mais id da última linha entregue, codificados
+num texto opaco que o cliente devolve sem interpretar. Os dois campos são necessários. Só
+o instante não serve porque duas propostas podem nascer no mesmo tique e uma delas sumiria
+da paginação.
+
+E o id sozinho também não serve, por um motivo específico do SQL Server: a comparação de
+`uniqueidentifier` começa pelos últimos bytes. O prefixo temporal do GUID v7 — justamente
+o que o torna ordenado — é o último critério a ser olhado. Ordenar por id daria uma
+sequência estável, mas não cronológica. Aqui o id é só desempate, e para isso basta ser o
+mesmo critério dos dois lados.
+
+A ordenação e o corte usam os mesmos dois campos na mesma ordem, e existe um índice com
+essa forma exata. Paginação por cursor sem índice de apoio é a mesma leitura completa com
+outro nome.
+
+O marcador vai em Base64 na variante de URL: ele viaja na cadeia de consulta, onde `+`
+vira espaço. A data é serializada no formato "O", com os sete dígitos de fração — truncar
+para milissegundos faria o corte cair no meio de um empate e repetir linhas.
+
+### Busca por CPF é POST, e não é escrita disfarçada
+
+CPF em `GET` vira caminho de URL, e caminho de URL termina em registro de acesso, histórico
+de navegador e cache de intermediário. Nenhum desses lugares deveria guardar CPF. Por isso
+a busca é um `POST` com o número no corpo — a única rota do sistema que é `POST` sem mudar
+nada.
+
+O número não é comparado: ele passa pelo mesmo protetor que grava, vira hash com pepper e
+bate no índice. A consulta nunca vê o CPF e nunca toca na chave de cifra.
+
+E a rota tem limite por IP próprio, mais apertado que o do cadastro. O hash é
+determinístico, então quem tem acesso a ela consegue perguntar "existe proposta para este
+número?" — e CPF tem cerca de um bilhão de valores válidos, o que faz da rota um enumerador
+se ninguém contar as perguntas. Compartilhar o limite do cadastro não serviria: cadastro e
+busca têm custos e frequências legítimas diferentes, e um número que sirva para os dois vai
+estar errado para um deles.
+
+### A listagem não devolve CPF, nem mascarado
+
+A máscara só existe depois de decifrar. Uma página de cem linhas decifraria cem CPFs para
+mostrar três dígitos de cada — chave de cifra exercitada cem vezes e cem números em texto
+claro na memória do processo, em troca de nada que a listagem precise. Quem tem que
+identificar a pessoa abre a proposta.
+
+### A trilha de auditoria é derivada, não gravada
+
+Cada evento já existe em algum lugar: a transição, o laudo, a parcela paga. Uma segunda
+cópia em tabela própria seria uma segunda versão da verdade, e a que divergisse seria
+justamente a que ninguém lê no dia a dia. O `GET /propostas/{id}/auditoria` monta a linha
+do tempo na hora, a partir do que já está gravado.
+
+```
+estado     Rascunho para EmAnalise
+estado     EmAnalise para Aprovada
+decisao    Aprovada pela politica versao 1, score 843, taxa 1,9% ao mes
+regra      RESTRICAO_CADASTRAL passou: Sem restricao cadastral.
+regra      SCORE_MINIMO passou: Score 843 atende o minimo de 500.
+regra      VALOR_DENTRO_DO_PRODUTO passou: Valor de R$ 6.000,00 dentro da faixa do produto.
+regra      PRAZO_DENTRO_DO_PRODUTO passou: Prazo de 6 meses dentro da faixa do produto.
+regra      COMPROMETIMENTO_DE_RENDA passou: Parcela de R$ 1.114,00 compromete 13,11% da renda.
+contrato   Contrato de R$ 6.000,00 em 6 parcelas pela Sac, taxa 1,9% ao mes
+estado     Aprovada para Contratada
+pagamento  Parcela 1 de 6 paga: R$ 1.114,00
+...
+pagamento  Parcela 6 de 6 paga: R$ 1.019,00
+estado     Contratada para Liquidada
+```
+
+As regras que passaram entram junto com as que falharam. Sem elas não dá para saber o que
+chegou a ser conferido — e num laudo de crédito isso importa tanto quanto o resultado.
+
+### A causa vem antes do efeito
+
+O relógio sozinho não ordena essa trilha. Uma requisição só faz várias coisas no mesmo
+instante: a análise transita duas vezes e grava o laudo, e o pagamento da última parcela
+liquida a proposta.
+
+A primeira versão dessa rota mostrava a proposta sendo liquidada antes do pagamento que a
+liquidou, e o contrato aparecendo depois da transição para `Contratada`. Estava
+cronologicamente correta e ilegível.
+
+O empate se resolve por precedência explícita: primeiro o que provocou a mudança —
+pagamento, assinatura —, depois a mudança de estado, por último o que a justifica — o laudo
+e as regras. Dentro da mesma precedência vale a ordem em que os eventos foram produzidos,
+que para as transições é a numeração da própria trilha.
+
+### O resumo traz os estados zerados
+
+Omitir os estados vazios obrigaria quem lê a adivinhar se "não veio `Negada`" quer dizer
+nenhuma negativa ou um estado que o relatório desconhece. A segunda leitura é a que passa
+despercebida, então o resumo devolve sempre os oito, com zero onde não houve nada.
+
 ## Decisões e trade-offs
 
 ### O agregado não guarda o CPF em texto claro
@@ -378,7 +502,13 @@ crédito ajustável.
   cadastro.
 - Toda entrada validada no servidor com FluentValidation; CPF é um tipo que não pode ser
   construído inválido, com dígito verificador e descarte de sequências repetidas.
-- Limite de submissão por IP, com `Retry-After` na recusa e fila zero.
+- Limite por IP em duas políticas separadas, com `Retry-After` na recusa e fila zero: uma
+  para o cadastro e outra, mais apertada, para a busca por CPF. Contadores independentes —
+  gastar uma não gasta a outra.
+- CPF nunca viaja em URL. A busca é `POST` com o número no corpo, justamente para não
+  deixá-lo em registro de acesso, histórico de navegador e cache de intermediário.
+- A listagem e o resumo não devolvem CPF de forma nenhuma, nem mascarado. O caminho de
+  leitura em lote não encosta na chave de cifra.
 - Zero SQL cru: tudo passa pelo EF Core, parametrizado.
 - Segredos em `.env`, fora do git, com `.env.example` versionado.
 - HSTS e redirecionamento de HTTPS fora de desenvolvimento; `nosniff`, `no-referrer` e
@@ -404,9 +534,16 @@ nenhuma ocorrência.
 - Juros e multa por atraso. A parcela vencida e não paga é consultável pelo índice de
   vencimento, mas nada cobra encargo sobre ela.
 - Autenticação e papéis. Enquanto não existirem, a renda fica fora de toda resposta.
-- Atrás de proxy, o limite de submissão precisa de `ForwardedHeaders` com a lista de
-  proxies confiáveis, senão o IP vira o do balanceador e o limite passa a valer para todo
-  mundo junto.
+- Atrás de proxy, os limites por IP precisam de `ForwardedHeaders` com a lista de proxies
+  confiáveis, senão o IP vira o do balanceador e o limite passa a valer para todo mundo
+  junto.
+- Filtro por faixa de valor e por nome na listagem. Hoje dá para filtrar estado, período e
+  CPF, e nada mais.
+- Exportação da trilha de auditoria em formato de arquivo. Hoje ela sai só como JSON, pela
+  rota.
+- O resumo agrupa por estado sem índice de apoio: com a carteira grande, ele passa a ser
+  uma varredura. Um índice por `(Estado, CriadaEm)` resolve, mas não foi criado porque
+  ainda não há volume que justifique o custo de escrita.
 - Backup do banco: ainda não documentado.
 
 O `xunit` está na 2.9.3, marcada como legada pelo NuGet em favor da v3. É a versão que o
