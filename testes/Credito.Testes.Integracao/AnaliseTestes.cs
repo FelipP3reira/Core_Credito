@@ -31,7 +31,7 @@ public class AnaliseTestes
         DateTimeOffset AvaliadaEm,
         IReadOnlyList<LinhaDoLaudo> Laudo);
 
-    private sealed record Mudanca(EstadoDaProposta De, EstadoDaProposta Para, string Origem);
+    private sealed record Mudanca(int Sequencia, EstadoDaProposta De, EstadoDaProposta Para, string Origem);
 
     private sealed record LaudoGuardado(
         bool Aprovada,

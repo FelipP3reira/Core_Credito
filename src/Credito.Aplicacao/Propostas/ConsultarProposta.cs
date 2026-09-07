@@ -60,7 +60,11 @@ public sealed class ConsultarProposta
             [.. proposta.Transicoes
                 .OrderBy(transicao => transicao.Sequencia)
                 .Select(transicao => new MudancaDeEstado(
-                    transicao.De, transicao.Para, transicao.OcorridaEm, transicao.Origem))],
+                    transicao.Sequencia,
+                    transicao.De,
+                    transicao.Para,
+                    transicao.OcorridaEm,
+                    transicao.Origem))],
             Laudo(proposta));
     }
 }
