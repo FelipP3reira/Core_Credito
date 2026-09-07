@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json.Serialization;
 using Credito.Api.Configuracao;
+using Credito.Api.Contratos;
 using Credito.Api.Propostas;
 using Credito.Infraestrutura.Observabilidade;
 using Serilog;
@@ -56,6 +57,7 @@ aplicacao.Use(async (contexto, proximo) =>
 aplicacao.UseRateLimiter();
 
 aplicacao.MapearPropostas();
+aplicacao.MapearContratos();
 
 await aplicacao.RunAsync().ConfigureAwait(false);
 
