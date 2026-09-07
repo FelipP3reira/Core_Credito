@@ -38,7 +38,7 @@ public class BuscaPorCpfTestes
         cliente.PostAsync("/propostas/busca", JsonContent.Create(corpo));
 
     [Fact]
-    public async Task AchaPelaPropriaProstaEIgnoraAsDeOutroCpf()
+    public async Task AchaSoAsPropostasDoCpfProcurado()
     {
         var cliente = fabrica.CreateClient();
         var recorte = fabrica.Relogio.GetUtcNow().ToString("O", CultureInfo.InvariantCulture);
