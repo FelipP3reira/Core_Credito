@@ -9,7 +9,8 @@ namespace Credito.Api.Propostas;
 
 internal static class EndpointsDePropostas
 {
-    public const string PoliticaDeLimite = "submissao-de-proposta";
+    public const string PoliticaDeSubmissao = "submissao-de-proposta";
+    public const string PoliticaDeBusca = "busca-por-cpf";
 
     private const string CabecalhoDeIdempotencia = "Idempotency-Key";
     private const int TamanhoMaximoDaChave = 64;
@@ -18,12 +19,13 @@ internal static class EndpointsDePropostas
     {
         var propostas = rotas.MapGroup("/propostas").WithTags("Propostas");
 
-        propostas.MapPost("/", Cadastrar).RequireRateLimiting(PoliticaDeLimite);
+        propostas.MapPost("/", Cadastrar).RequireRateLimiting(PoliticaDeSubmissao);
         propostas.MapPost("/{id:guid}/analise", Analisar);
         propostas.MapPost("/{id:guid}/simulacao", Simular);
         propostas.MapPost("/{id:guid}/cancelamento", Cancelar);
         propostas.MapGet("/{id:guid}", Detalhar);
         propostas.MapGet("/", Listar);
+        propostas.MapPost("/busca", Buscar).RequireRateLimiting(PoliticaDeBusca);
     }
 
     private static async Task<IResult> Cadastrar(
@@ -104,6 +106,41 @@ internal static class EndpointsDePropostas
         Results.Ok(await listar
             .Executar(new PedidoDeListagem(estado, de, ate, Cpf: null, cursor, tamanho), cancelamento)
             .ConfigureAwait(false));
+
+    /// <remarks>
+    /// POST porque o CPF vai no corpo. Nao e uma escrita disfarcada: e o unico jeito de
+    /// procurar por CPF sem deixa-lo em registro de acesso, historico de navegador e
+    /// cache de intermediario, que e onde a URL de um GET termina.
+    /// </remarks>
+    private static async Task<IResult> Buscar(
+        PedidoDeBusca pedido,
+        ListarPropostas listar,
+        CancellationToken cancelamento)
+    {
+        ArgumentNullException.ThrowIfNull(pedido);
+
+        // Sem CPF isto viraria a listagem inteira por uma rota que nao tem esse contrato
+        // — e que gasta o limite da busca em vez do limite da listagem.
+        if (string.IsNullOrWhiteSpace(pedido.Cpf))
+        {
+            return Results.Problem(
+                title: "CPF obrigatorio",
+                detail: "Envie o CPF no corpo do pedido de busca.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        return Results.Ok(await listar
+            .Executar(
+                new PedidoDeListagem(
+                    pedido.Estado,
+                    pedido.De,
+                    pedido.Ate,
+                    pedido.Cpf,
+                    pedido.Cursor,
+                    pedido.Tamanho),
+                cancelamento)
+            .ConfigureAwait(false));
+    }
 
     private static async Task<IResult> Detalhar(
         Guid id,

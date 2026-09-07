@@ -23,7 +23,7 @@ namespace Credito.Testes.Integracao;
 public sealed class FabricaDeApi : WebApplicationFactory<Program>, IAsyncLifetime
 {
     /// <summary>Alto de proposito: so o teste do proprio limite quer ser barrado.</summary>
-    private const int SubmissoesPermitidas = 10_000;
+    private const int SemLimitePratico = 10_000;
 
     // Mesma imagem do docker-compose: teste que roda contra versao diferente da que
     // vai para producao nao prova o que promete.
@@ -64,7 +64,7 @@ public sealed class FabricaDeApi : WebApplicationFactory<Program>, IAsyncLifetim
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        builder.AplicarConfiguracaoDeTeste(StringDeConexao, SubmissoesPermitidas);
+        builder.AplicarConfiguracaoDeTeste(StringDeConexao, SemLimitePratico, SemLimitePratico);
         builder.ConfigureTestServices(servicos =>
         {
             servicos.AddSingleton<IConsultaDeBureau>(Bureau);
@@ -79,7 +79,8 @@ internal static class ConfiguracaoDeTeste
     public static void AplicarConfiguracaoDeTeste(
         this IWebHostBuilder builder,
         string stringDeConexao,
-        int submissoesPermitidas) =>
+        int submissoesPermitidas,
+        int buscasPermitidas) =>
         builder.ConfigureAppConfiguration(configuracao => configuracao.AddInMemoryCollection(
             new Dictionary<string, string?>
             {
@@ -89,5 +90,8 @@ internal static class ConfiguracaoDeTeste
                 ["LimiteDeSubmissao:Permitidas"] =
                     submissoesPermitidas.ToString(CultureInfo.InvariantCulture),
                 ["LimiteDeSubmissao:JanelaEmSegundos"] = "60",
+                ["LimiteDeBusca:Permitidas"] =
+                    buscasPermitidas.ToString(CultureInfo.InvariantCulture),
+                ["LimiteDeBusca:JanelaEmSegundos"] = "60",
             }));
 }

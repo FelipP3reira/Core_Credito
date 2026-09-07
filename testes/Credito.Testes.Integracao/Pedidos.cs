@@ -8,6 +8,9 @@ internal static class Pedidos
     public const string CpfValido = "529.982.247-25";
     public const string CpfEmDigitos = "52998224725";
 
+    /// <summary>Segundo CPF valido, para provar que a busca separa um do outro.</summary>
+    public const string OutroCpfValido = "111.444.777-35";
+
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() },

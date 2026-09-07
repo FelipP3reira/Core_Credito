@@ -1,7 +1,5 @@
 using System.Net;
 using System.Net.Http.Json;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Credito.Testes.Integracao;
 
@@ -14,26 +12,10 @@ public class LimiteDeSubmissaoTestes
 
     public LimiteDeSubmissaoTestes(FabricaDeApi fabrica) => this.fabrica = fabrica;
 
-    /// <summary>
-    /// Segunda instancia da API sobre o MESMO container: subir outro SQL Server para
-    /// provar um contador em memoria nao se paga. Fabrica propria, e nao um ajuste em
-    /// cima da existente, porque ai a ordem entre os provedores de configuracao decide
-    /// quem vence — e ela nao e obvia o bastante para um teste depender dela.
-    /// </summary>
-    private sealed class ApiComLimiteBaixo : WebApplicationFactory<Program>
-    {
-        private readonly string stringDeConexao;
-
-        public ApiComLimiteBaixo(string stringDeConexao) => this.stringDeConexao = stringDeConexao;
-
-        protected override void ConfigureWebHost(IWebHostBuilder builder) =>
-            builder.AplicarConfiguracaoDeTeste(stringDeConexao, Permitidas);
-    }
-
     [Fact]
     public async Task RecusaOExcedenteEDizQuandoTentarDeNovo()
     {
-        using var api = new ApiComLimiteBaixo(fabrica.StringDeConexao);
+        using var api = new ApiComLimite(fabrica.StringDeConexao, submissoes: Permitidas);
         var cliente = api.CreateClient();
 
         var codigos = new List<HttpStatusCode>();
