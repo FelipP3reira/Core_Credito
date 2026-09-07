@@ -43,17 +43,34 @@ public sealed class MontarAuditoria
     }
 
     /// <remarks>
-    /// A ordem em que os eventos sao produzidos e o criterio de desempate, e por isso o
-    /// indice entra na ordenacao. A analise faz duas transicoes e grava o laudo no mesmo
-    /// instante: sem desempate explicito, "entrou em analise", "foi aprovada" e o parecer
-    /// sairiam embaralhados justamente onde a trilha precisa ser lida como sequencia.
+    /// O relogio sozinho nao ordena: uma requisicao so faz varias coisas no mesmo instante
+    /// — a analise transita duas vezes e grava o laudo, e o pagamento da ultima parcela
+    /// liquida a proposta. O empate se resolve por <see cref="Prioridade"/> e, dentro dela,
+    /// pela ordem em que os eventos foram produzidos.
     /// </remarks>
     private static IReadOnlyList<EventoDaTrilha> Ordenar(IEnumerable<EventoDaTrilha> eventos) =>
         [.. eventos
             .Select((evento, indice) => (evento, indice))
             .OrderBy(par => par.evento.OcorridoEm)
+            .ThenBy(par => Prioridade(par.evento.Tipo))
             .ThenBy(par => par.indice)
             .Select(par => par.evento)];
+
+    /// <summary>
+    /// Desempate de eventos simultaneos: primeiro o que provocou a mudanca, depois a
+    /// mudanca, por ultimo o que a justifica.
+    /// </summary>
+    /// <remarks>
+    /// Sem isso a trilha mostra a proposta sendo liquidada antes do pagamento que a
+    /// liquidou, e o contrato aparecendo depois da transicao para Contratada — os dois
+    /// acontecem no mesmo instante, e a leitura sai de tras para frente.
+    /// </remarks>
+    private static int Prioridade(string tipo) => tipo switch
+    {
+        TiposDeEvento.Contrato or TiposDeEvento.Pagamento => 0,
+        TiposDeEvento.Estado => 1,
+        _ => 2,
+    };
 
     private static IEnumerable<EventoDaTrilha> Reunir(Proposta proposta, Contrato? contrato)
     {
@@ -61,7 +78,7 @@ public sealed class MontarAuditoria
         {
             yield return new EventoDaTrilha(
                 transicao.OcorridaEm,
-                "estado",
+                TiposDeEvento.Estado,
                 $"{transicao.De} para {transicao.Para}",
                 transicao.Origem);
 
@@ -100,7 +117,7 @@ public sealed class MontarAuditoria
 
         yield return new EventoDaTrilha(
             decisao.AvaliadaEm,
-            "decisao",
+            TiposDeEvento.Decisao,
             $"{conclusao} pela politica versao {decisao.VersaoDaPolitica}, score {decisao.ScoreObservado}, taxa {taxa}% ao mes",
             origem);
 
@@ -112,7 +129,7 @@ public sealed class MontarAuditoria
 
             yield return new EventoDaTrilha(
                 decisao.AvaliadaEm,
-                "regra",
+                TiposDeEvento.Regra,
                 $"{avaliacao.Codigo} {veredicto}: {avaliacao.Motivo}",
                 origem);
         }
@@ -125,7 +142,7 @@ public sealed class MontarAuditoria
 
         yield return new EventoDaTrilha(
             contrato.AssinadoEm,
-            "contrato",
+            TiposDeEvento.Contrato,
             $"Contrato de {financiado} em {contrato.PrazoEmMeses} parcelas pela {contrato.Sistema}, taxa {taxa}% ao mes",
             "api:contratacao");
 
@@ -140,7 +157,7 @@ public sealed class MontarAuditoria
 
             yield return new EventoDaTrilha(
                 parcela.PagaEm!.Value,
-                "pagamento",
+                TiposDeEvento.Pagamento,
                 $"Parcela {parcela.Numero} de {contrato.PrazoEmMeses} paga: {valor}",
                 "api:pagamento");
         }

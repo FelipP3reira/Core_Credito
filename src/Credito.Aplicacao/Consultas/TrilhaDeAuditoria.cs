@@ -2,9 +2,25 @@ using Credito.Dominio.Propostas;
 
 namespace Credito.Aplicacao.Consultas;
 
+/// <summary>
+/// Os tipos que o campo <see cref="EventoDaTrilha.Tipo"/> pode assumir.
+/// </summary>
+public static class TiposDeEvento
+{
+    public const string Estado = "estado";
+
+    public const string Decisao = "decisao";
+
+    public const string Regra = "regra";
+
+    public const string Contrato = "contrato";
+
+    public const string Pagamento = "pagamento";
+}
+
 /// <param name="Tipo">
-/// "estado", "decisao", "regra", "contrato" ou "pagamento". Quem consome filtra por isto
-/// sem precisar interpretar o texto do resumo.
+/// Um dos valores de <see cref="TiposDeEvento"/>. Quem consome filtra por ele sem
+/// precisar interpretar o texto do resumo.
 /// </param>
 /// <param name="Origem">Quem causou o evento, ex: "api:submissao", "motor:decisao".</param>
 public sealed record EventoDaTrilha(

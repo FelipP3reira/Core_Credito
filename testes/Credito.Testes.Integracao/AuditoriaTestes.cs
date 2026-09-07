@@ -141,16 +141,44 @@ public class AuditoriaTestes
         Assert.Equal(instantes.Order(), instantes);
     }
 
+    /// <summary>
+    /// O ultimo pagamento e a liquidacao acontecem na mesma requisicao, com o mesmo
+    /// instante. A causa tem que aparecer antes do efeito: sem desempate, a trilha mostra
+    /// a proposta sendo liquidada antes do pagamento que a liquidou.
+    /// </summary>
     [Fact]
-    public async Task AUltimaParcelaPagaVemDepoisDaLiquidacaoDoEstado()
+    public async Task OPagamentoQueLiquidouVemAntesDaMudancaDeEstado()
     {
         var cliente = fabrica.CreateClient();
         var id = await CicloCompleto(cliente);
 
         var eventos = (await Auditar(cliente, id))!.Eventos;
 
-        Assert.Equal("pagamento", eventos[^1].Tipo);
-        Assert.Contains($"Parcela {Prazo} de {Prazo} paga", eventos[^1].Resumo, StringComparison.Ordinal);
+        Assert.Equal("pagamento", eventos[^2].Tipo);
+        Assert.Contains($"Parcela {Prazo} de {Prazo} paga", eventos[^2].Resumo, StringComparison.Ordinal);
+
+        Assert.Equal("estado", eventos[^1].Tipo);
+        Assert.Equal("Contratada para Liquidada", eventos[^1].Resumo);
+
+        Assert.Equal(eventos[^2].OcorridoEm, eventos[^1].OcorridoEm);
+    }
+
+    // Mesmo caso na contratacao: assina-se o contrato e so entao a proposta muda de estado.
+    [Fact]
+    public async Task OContratoVemAntesDaTransicaoParaContratada()
+    {
+        var cliente = fabrica.CreateClient();
+        fabrica.Bureau.Responder(score: 820);
+
+        var id = await Cadastrar(cliente);
+        await cliente.PostAsync($"/propostas/{id}/analise", content: null);
+        await cliente.PostAsync($"/propostas/{id}/contrato", content: null);
+
+        var eventos = (await Auditar(cliente, id))!.Eventos;
+        var contrato = eventos.Single(evento => evento.Tipo == "contrato");
+
+        Assert.Equal(contrato, eventos[^2]);
+        Assert.Equal("Aprovada para Contratada", eventos[^1].Resumo);
     }
 
     [Fact]
