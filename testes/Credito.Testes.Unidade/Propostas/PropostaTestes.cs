@@ -73,6 +73,23 @@ public class PropostaTestes
             proposta.Transicoes.Select(transicao => transicao.Para));
     }
 
+    /// <summary>
+    /// A analise faz duas transicoes na mesma requisicao, com o mesmo instante. Sem a
+    /// sequencia, a trilha sairia em ordem indefinida justamente na hora em que ela precisa
+    /// ser lida como sequencia.
+    /// </summary>
+    [Fact]
+    public void NumeraATrilhaMesmoQuandoAsTransicoesCompartilhamOInstante()
+    {
+        var proposta = Proposta.Rascunho(DadosDeExemplo.Validos(), DadosDeExemplo.Agora);
+
+        proposta.EnviarParaAnalise(DadosDeExemplo.Agora, "api:submissao");
+        proposta.Cancelar(DadosDeExemplo.Agora, "api:cancelamento");
+
+        Assert.Equal([1, 2], proposta.Transicoes.Select(transicao => transicao.Sequencia));
+        Assert.Single(proposta.Transicoes.Select(transicao => transicao.OcorridaEm).Distinct());
+    }
+
     [Fact]
     public void CancelarDuasVezesLanca()
     {
