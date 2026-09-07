@@ -1,5 +1,6 @@
 using Credito.Dominio.Amortizacao;
 using Credito.Dominio.Comum;
+using Credito.Dominio.Contratos;
 using Credito.Dominio.Decisoes;
 using Credito.Dominio.Erros;
 
@@ -101,6 +102,48 @@ public sealed class Proposta
 
     public void Negar(Decisao decisao, DateTimeOffset agora, string origem) =>
         Decidir(decisao, EstadoDaProposta.Negada, agora, origem);
+
+    /// <summary>
+    /// Contratar exige o contrato pela mesma razao de aprovar exigir o laudo: o compilador
+    /// impede que a proposta mude de estado sem a evidencia do que a fez mudar.
+    /// </summary>
+    public void Contratar(Contrato contrato, DateTimeOffset agora, string origem)
+    {
+        ArgumentNullException.ThrowIfNull(contrato);
+
+        if (contrato.PropostaId != Id)
+        {
+            throw new PropostaInvalidaException("O contrato apresentado e de outra proposta.");
+        }
+
+        Transitar(EstadoDaProposta.Contratada, agora, origem);
+    }
+
+    /// <summary>
+    /// Liquidar exige o contrato quitado. Sem essa conferencia, bastaria chamar o metodo
+    /// para dar uma divida aberta como paga.
+    /// </summary>
+    public void Liquidar(Contrato contrato, DateTimeOffset agora, string origem)
+    {
+        ArgumentNullException.ThrowIfNull(contrato);
+
+        if (contrato.PropostaId != Id)
+        {
+            throw new PropostaInvalidaException("O contrato apresentado e de outra proposta.");
+        }
+
+        if (!contrato.EstaQuitado)
+        {
+            throw new PropostaInvalidaException(
+                $"O contrato ainda tem {contrato.SaldoAberto:0.00} em aberto.");
+        }
+
+        Transitar(EstadoDaProposta.Liquidada, agora, origem);
+    }
+
+    /// <summary>Aprovacao vencida: a taxa oferecida deixou de valer.</summary>
+    public void Expirar(DateTimeOffset agora, string origem) =>
+        Transitar(EstadoDaProposta.Expirada, agora, origem);
 
     /// <summary>
     /// Aprovar e negar exigem o laudo na assinatura. Nao e documentacao: e o compilador

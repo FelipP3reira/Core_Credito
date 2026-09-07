@@ -27,6 +27,7 @@ internal static class ContextoDeExemplo
         decimal valorMaximo = 100_000m,
         int prazoMinimoEmMeses = 6,
         int prazoMaximoEmMeses = 96,
+        int validadeDaAprovacaoEmDias = 30,
         IEnumerable<FaixaDeTaxa>? faixas = null) =>
         new(
             versao,
@@ -36,6 +37,7 @@ internal static class ContextoDeExemplo
             valorMaximo,
             prazoMinimoEmMeses,
             prazoMaximoEmMeses,
+            validadeDaAprovacaoEmDias,
             Agora,
             faixas ?? Faixas());
 
