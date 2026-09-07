@@ -1,4 +1,6 @@
 using Credito.Aplicacao.Analises;
+using Credito.Aplicacao.Consultas;
+using Credito.Dominio.Propostas;
 using Credito.Aplicacao.Propostas;
 using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
@@ -21,6 +23,7 @@ internal static class EndpointsDePropostas
         propostas.MapPost("/{id:guid}/simulacao", Simular);
         propostas.MapPost("/{id:guid}/cancelamento", Cancelar);
         propostas.MapGet("/{id:guid}", Detalhar);
+        propostas.MapGet("/", Listar);
     }
 
     private static async Task<IResult> Cadastrar(
@@ -84,6 +87,23 @@ internal static class EndpointsDePropostas
         CancelarProposta cancelar,
         CancellationToken cancelamento) =>
         Results.Ok(new RespostaDeCadastro(id, await cancelar.Executar(id, cancelamento).ConfigureAwait(false)));
+
+    /// <remarks>
+    /// Sem CPF entre os filtros: aqui ele viraria cadeia de consulta e apareceria em
+    /// registro de acesso e historico. Busca por CPF tem rota propria, com o numero
+    /// no corpo.
+    /// </remarks>
+    private static async Task<IResult> Listar(
+        ListarPropostas listar,
+        CancellationToken cancelamento,
+        EstadoDaProposta? estado = null,
+        DateTimeOffset? de = null,
+        DateTimeOffset? ate = null,
+        string? cursor = null,
+        int? tamanho = null) =>
+        Results.Ok(await listar
+            .Executar(new PedidoDeListagem(estado, de, ate, Cpf: null, cursor, tamanho), cancelamento)
+            .ConfigureAwait(false));
 
     private static async Task<IResult> Detalhar(
         Guid id,

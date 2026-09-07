@@ -2,6 +2,7 @@ using System.Threading.RateLimiting;
 using Credito.Api.Erros;
 using Credito.Api.Propostas;
 using Credito.Aplicacao.Analises;
+using Credito.Aplicacao.Consultas;
 using Credito.Aplicacao.Contratos;
 using Credito.Aplicacao.Portas;
 using Credito.Dominio.Amortizacao;
@@ -39,9 +40,11 @@ internal static class ServicosDeCredito
         servicos.AddSingleton(TimeProvider.System);
         servicos.AddSingleton<IProtetorDeCpf, ProtetorDeCpf>();
         servicos.AddScoped<IRepositorioDePropostas, RepositorioDePropostas>();
+        servicos.AddScoped<IConsultaDePropostas, ConsultaDePropostas>();
 
         servicos.AddScoped<CadastrarProposta>();
         servicos.AddScoped<ConsultarProposta>();
+        servicos.AddScoped<ListarPropostas>();
         servicos.AddScoped<SimularProposta>();
         servicos.AddScoped<AnalisarProposta>();
         servicos.AddScoped<CancelarProposta>();
