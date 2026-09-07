@@ -1,9 +1,13 @@
 using System.Threading.RateLimiting;
 using Credito.Api.Erros;
 using Credito.Api.Propostas;
+using Credito.Aplicacao.Analises;
 using Credito.Aplicacao.Portas;
 using Credito.Dominio.Amortizacao;
+using Credito.Dominio.Decisoes;
+using Credito.Dominio.Decisoes.Regras;
 using Credito.Aplicacao.Propostas;
+using Credito.Infraestrutura.Bureau;
 using Credito.Infraestrutura.Persistencia;
 using Credito.Infraestrutura.Seguranca;
 using FluentValidation;
@@ -36,9 +40,13 @@ internal static class ServicosDeCredito
         servicos.AddScoped<IRepositorioDePropostas, RepositorioDePropostas>();
 
         servicos.AddScoped<CadastrarProposta>();
-        servicos.AddScoped<EnviarPropostaParaAnalise>();
         servicos.AddScoped<ConsultarProposta>();
         servicos.AddScoped<SimularProposta>();
+        servicos.AddScoped<AnalisarProposta>();
+        servicos.AddScoped<MontadorDoContexto>();
+
+        servicos.AddScoped<IRepositorioDePoliticas, RepositorioDePoliticas>();
+        servicos.AddSingleton<IConsultaDeBureau, BureauSimulado>();
 
         // Registrados pela interface para o resolvedor receber todos de uma vez: sistema
         // novo entra aqui e nada mais precisa mudar.
@@ -46,8 +54,17 @@ internal static class ServicosDeCredito
         servicos.AddSingleton<ISistemaDeAmortizacao, TabelaSac>();
         servicos.AddSingleton<SistemasDeAmortizacao>();
 
+        // A ordem do registro e a ordem em que as regras aparecem no laudo. Impedimento
+        // primeiro, condicao do produto depois, capacidade de pagamento por ultimo — e
+        // como um analista leria.
+        servicos.AddSingleton<IRegraDeCredito, RestricaoCadastral>();
+        servicos.AddSingleton<IRegraDeCredito, ScoreMinimo>();
+        servicos.AddSingleton<IRegraDeCredito, ValorDentroDoProduto>();
+        servicos.AddSingleton<IRegraDeCredito, PrazoDentroDoProduto>();
+        servicos.AddSingleton<IRegraDeCredito, ComprometimentoDeRenda>();
+        servicos.AddSingleton<MotorDeDecisao>();
+
         servicos.AddScoped<IValidator<PedidoDeCadastro>, ValidadorDeCadastro>();
-        servicos.AddScoped<IValidator<PedidoDeSimulacao>, ValidadorDeSimulacao>();
 
         servicos.AddProblemDetails();
         servicos.AddExceptionHandler<TratamentoDeErrosDeDominio>();

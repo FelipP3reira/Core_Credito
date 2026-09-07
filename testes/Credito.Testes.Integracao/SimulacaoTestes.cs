@@ -27,6 +27,7 @@ public class SimulacaoTestes
         decimal TaxaMensal,
         int PrazoEmMeses,
         SistemaDeAmortizacao Sistema,
+        int ScoreObservado,
         decimal PrimeiraParcela,
         decimal UltimaParcela,
         decimal TotalPago,
@@ -52,91 +53,95 @@ public class SimulacaoTestes
         return (await resposta.Content.ReadFromJsonAsync<Cadastrada>(Pedidos.Json))!.Id;
     }
 
-    private static Task<HttpResponseMessage> Simular(HttpClient cliente, Guid id, decimal taxaMensal) =>
-        cliente.PostAsJsonAsync($"/propostas/{id}/simulacao", new { taxaMensal });
+    private static Task<HttpResponseMessage> Simular(HttpClient cliente, Guid id) =>
+        cliente.PostAsync($"/propostas/{id}/simulacao", content: null);
 
+    /// <summary>
+    /// Score 800 cai na faixa de 700 a 849, cobrada a 1,9% ao mes pela politica semeada.
+    /// A simulacao mostra a parcela que o motor de fato ofereceria, e nao a de uma taxa
+    /// escolhida por quem pergunta.
+    /// </summary>
     [Fact]
-    public async Task DevolveOCronogramaCompletoDaTabelaPrice()
+    public async Task UsaATaxaDaFaixaDeScoreDaPolitica()
     {
+        fabrica.Bureau.Responder(score: 800);
         var cliente = fabrica.CreateClient();
         var id = await Cadastrar(cliente);
 
-        var resposta = await Simular(cliente, id, 0.01m);
+        var resposta = await Simular(cliente, id);
 
         Assert.Equal(HttpStatusCode.OK, resposta.StatusCode);
 
         var simulacao = await resposta.Content.ReadFromJsonAsync<Simulacao>(Pedidos.Json);
 
-        Assert.Equal(id, simulacao!.PropostaId);
-        Assert.Equal(SistemaDeAmortizacao.Price, simulacao.Sistema);
-        Assert.Equal(12, simulacao.Parcelas.Count);
-        Assert.Equal(888.49m, simulacao.PrimeiraParcela);
+        Assert.Equal(0.019m, simulacao!.TaxaMensal);
+        Assert.Equal(800, simulacao.ScoreObservado);
+        Assert.Equal(939.80m, simulacao.PrimeiraParcela);
+        Assert.Equal(939.78m, simulacao.UltimaParcela);
+        Assert.Equal(11_277.58m, simulacao.TotalPago);
         Assert.Equal(10_000m, simulacao.Parcelas.Sum(parcela => parcela.Amortizacao));
-        Assert.Equal(simulacao.TotalPago - 10_000m, simulacao.TotalDeJuros);
+    }
+
+    [Fact]
+    public async Task ScorePiorProduzTaxaMaiorEParcelaMaisCara()
+    {
+        var cliente = fabrica.CreateClient();
+
+        fabrica.Bureau.Responder(score: 900);
+        var comScoreOtimo = await (await Simular(cliente, await Cadastrar(cliente)))
+            .Content.ReadFromJsonAsync<Simulacao>(Pedidos.Json);
+
+        fabrica.Bureau.Responder(score: 550);
+        var comScoreFraco = await (await Simular(cliente, await Cadastrar(cliente)))
+            .Content.ReadFromJsonAsync<Simulacao>(Pedidos.Json);
+
+        Assert.Equal(0.012m, comScoreOtimo!.TaxaMensal);
+        Assert.Equal(0.029m, comScoreFraco!.TaxaMensal);
+        Assert.True(comScoreFraco.PrimeiraParcela > comScoreOtimo.PrimeiraParcela);
     }
 
     [Fact]
     public async Task RespeitaOSistemaEscolhidoNaProposta()
     {
+        fabrica.Bureau.Responder(score: 800);
         var cliente = fabrica.CreateClient();
         var id = await Cadastrar(cliente, valorSolicitado: 12_000m, sistema: "Sac");
 
-        var simulacao = await (await Simular(cliente, id, 0.01m))
+        var simulacao = await (await Simular(cliente, id))
             .Content.ReadFromJsonAsync<Simulacao>(Pedidos.Json);
 
         Assert.Equal(SistemaDeAmortizacao.Sac, simulacao!.Sistema);
-        Assert.Equal(1_120m, simulacao.PrimeiraParcela);
         Assert.True(simulacao.UltimaParcela < simulacao.PrimeiraParcela);
+        Assert.Equal(12_000m, simulacao.Parcelas.Sum(parcela => parcela.Amortizacao));
     }
 
     [Fact]
     public async Task SimularNaoMudaOEstadoDaProposta()
     {
+        fabrica.Bureau.Responder(score: 800);
         var cliente = fabrica.CreateClient();
         var id = await Cadastrar(cliente);
 
-        await Simular(cliente, id, 0.01m);
+        await Simular(cliente, id);
 
         var detalhe = await cliente.GetFromJsonAsync<Cadastrada>($"/propostas/{id}", Pedidos.Json);
 
         Assert.Equal(EstadoDaProposta.Rascunho, detalhe!.Estado);
     }
 
-    [Fact]
-    public async Task SemJurosOTotalPagoEhOValorPedido()
-    {
-        var cliente = fabrica.CreateClient();
-        var id = await Cadastrar(cliente, valorSolicitado: 1_200m);
-
-        var simulacao = await (await Simular(cliente, id, 0m))
-            .Content.ReadFromJsonAsync<Simulacao>(Pedidos.Json);
-
-        Assert.Equal(1_200m, simulacao!.TotalPago);
-        Assert.Equal(0m, simulacao.TotalDeJuros);
-    }
-
-    [Theory]
-    [InlineData(-0.01)]
-    [InlineData(1.89)]
-    public async Task RecusaTaxaForaDaFaixa(decimal taxaMensal)
-    {
-        var cliente = fabrica.CreateClient();
-        var id = await Cadastrar(cliente);
-
-        Assert.Equal(HttpStatusCode.BadRequest, (await Simular(cliente, id, taxaMensal)).StatusCode);
-    }
-
     /// <summary>
     /// Vinte reais em 360 meses passa na validacao do cadastro mas nao se representa em
-    /// centavos. A recusa precisa chegar como erro do pedido, e nao como 500.
+    /// centavos. Na simulacao isso e erro do pedido — ao contrario da analise, que devolve
+    /// laudo explicando.
     /// </summary>
     [Fact]
     public async Task RecusaCombinacaoQueNaoFechaEmCentavos()
     {
+        fabrica.Bureau.Responder(score: 800);
         var cliente = fabrica.CreateClient();
         var id = await Cadastrar(cliente, valorSolicitado: 20m, prazoEmMeses: 360);
 
-        var resposta = await Simular(cliente, id, 0.01m);
+        var resposta = await Simular(cliente, id);
 
         Assert.Equal(HttpStatusCode.BadRequest, resposta.StatusCode);
         Assert.Contains(
@@ -146,10 +151,8 @@ public class SimulacaoTestes
     }
 
     [Fact]
-    public async Task PropostaInexistenteDevolveNaoEncontrada()
-    {
-        var resposta = await Simular(fabrica.CreateClient(), Guid.NewGuid(), 0.01m);
-
-        Assert.Equal(HttpStatusCode.NotFound, resposta.StatusCode);
-    }
+    public async Task PropostaInexistenteDevolveNaoEncontrada() =>
+        Assert.Equal(
+            HttpStatusCode.NotFound,
+            (await Simular(fabrica.CreateClient(), Guid.NewGuid())).StatusCode);
 }

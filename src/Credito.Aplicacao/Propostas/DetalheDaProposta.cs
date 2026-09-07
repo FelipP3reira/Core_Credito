@@ -1,7 +1,16 @@
 using Credito.Dominio.Amortizacao;
+using Credito.Aplicacao.Analises;
 using Credito.Dominio.Propostas;
 
 namespace Credito.Aplicacao.Propostas;
+
+public sealed record LaudoDaDecisao(
+    bool Aprovada,
+    int ScoreObservado,
+    decimal TaxaMensalAplicada,
+    int VersaoDaPolitica,
+    DateTimeOffset AvaliadaEm,
+    IReadOnlyList<LinhaDoLaudo> Regras);
 
 public sealed record MudancaDeEstado(EstadoDaProposta De, EstadoDaProposta Para, DateTimeOffset OcorridaEm, string Origem);
 
@@ -16,4 +25,5 @@ public sealed record DetalheDaProposta(
     SistemaDeAmortizacao Sistema,
     DateTimeOffset CriadaEm,
     DateTimeOffset AtualizadaEm,
-    IReadOnlyList<MudancaDeEstado> Historico);
+    IReadOnlyList<MudancaDeEstado> Historico,
+    LaudoDaDecisao? Decisao);
