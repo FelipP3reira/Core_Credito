@@ -37,6 +37,11 @@ o empréstimo vira produto dessa conta: o valor financiado entra por depósito e
 paga sai por saque. Sem conta informada, o contrato existe do mesmo jeito e a liquidação
 acontece por fora.
 
+Em desenvolvimento há documentação navegável em **`/docs`** — dá para disparar as
+requisições dali, e a raiz redireciona para lá. Fora de desenvolvimento ela não sobe: o
+contrato da API não é segredo, mas uma interface que dispara requisição de verdade não
+precisa estar exposta no servidor que decide concessão de crédito.
+
 O que já está escrito está testado; o que falta está listado no fim.
 
 ## Como rodar
