@@ -57,6 +57,7 @@ internal sealed class PoliticaDeCreditoConfiguracao : IEntityTypeConfiguration<P
             ValorMaximo = 100_000m,
             PrazoMinimoEmMeses = 6,
             PrazoMaximoEmMeses = 96,
+            ValidadeDaAprovacaoEmDias = 30,
             VigenteDesde = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
         });
 
