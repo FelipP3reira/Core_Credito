@@ -29,6 +29,7 @@ public sealed class PoliticaDeCredito
         decimal valorMaximo,
         int prazoMinimoEmMeses,
         int prazoMaximoEmMeses,
+        int validadeDaAprovacaoEmDias,
         DateTimeOffset vigenteDesde,
         IEnumerable<FaixaDeTaxa> faixasDeTaxa)
     {
@@ -42,6 +43,7 @@ public sealed class PoliticaDeCredito
         ValorMaximo = valorMaximo;
         PrazoMinimoEmMeses = prazoMinimoEmMeses;
         PrazoMaximoEmMeses = prazoMaximoEmMeses;
+        ValidadeDaAprovacaoEmDias = validadeDaAprovacaoEmDias;
         VigenteDesde = vigenteDesde;
         faixas = [.. faixasDeTaxa.OrderBy(faixa => faixa.ScoreMinimo)];
 
@@ -65,6 +67,15 @@ public sealed class PoliticaDeCredito
 
     public int PrazoMaximoEmMeses { get; private set; }
 
+    /// <summary>
+    /// Por quantos dias uma aprovacao continua contratavel.
+    /// </summary>
+    /// <remarks>
+    /// Taxa aprovada tem validade: contratar hoje uma aprovacao de seis meses atras seria
+    /// conceder credito com condicao que ninguem mais ofereceria.
+    /// </remarks>
+    public int ValidadeDaAprovacaoEmDias { get; private set; }
+
     public DateTimeOffset VigenteDesde { get; private set; }
 
     public IReadOnlyList<FaixaDeTaxa> Faixas => faixas;
@@ -74,6 +85,10 @@ public sealed class PoliticaDeCredito
     /// uma — inclusive para score abaixo do minimo, que recebe a taxa da pior faixa e e
     /// reprovado pela regra de score, nao pela falta de taxa.
     /// </summary>
+    /// <summary>A aprovacao ainda esta dentro do prazo de contratacao?</summary>
+    public bool AprovacaoAindaVale(DateTimeOffset aprovadaEm, DateTimeOffset agora) =>
+        agora <= aprovadaEm.AddDays(ValidadeDaAprovacaoEmDias);
+
     public decimal TaxaPara(int score) =>
         faixas.FirstOrDefault(faixa => faixa.Cobre(score))?.TaxaMensal
         ?? throw new PoliticaInvalidaException($"Nenhuma faixa de taxa cobre o score {score}.");
@@ -105,6 +120,11 @@ public sealed class PoliticaDeCredito
         if (PrazoMinimoEmMeses < 1 || PrazoMaximoEmMeses < PrazoMinimoEmMeses)
         {
             throw new PoliticaInvalidaException("Faixa de prazo do produto invertida ou menor que um mes.");
+        }
+
+        if (ValidadeDaAprovacaoEmDias < 1)
+        {
+            throw new PoliticaInvalidaException("A validade da aprovacao precisa ser de ao menos um dia.");
         }
 
         GarantirQueAsFaixasCobremAEscalaInteira();

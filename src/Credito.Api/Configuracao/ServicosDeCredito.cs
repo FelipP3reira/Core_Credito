@@ -2,6 +2,7 @@ using System.Threading.RateLimiting;
 using Credito.Api.Erros;
 using Credito.Api.Propostas;
 using Credito.Aplicacao.Analises;
+using Credito.Aplicacao.Contratos;
 using Credito.Aplicacao.Portas;
 using Credito.Dominio.Amortizacao;
 using Credito.Dominio.Decisoes;
@@ -43,9 +44,16 @@ internal static class ServicosDeCredito
         servicos.AddScoped<ConsultarProposta>();
         servicos.AddScoped<SimularProposta>();
         servicos.AddScoped<AnalisarProposta>();
+        servicos.AddScoped<CancelarProposta>();
         servicos.AddScoped<MontadorDoContexto>();
 
         servicos.AddScoped<IRepositorioDePoliticas, RepositorioDePoliticas>();
+        servicos.AddScoped<IRepositorioDeContratos, RepositorioDeContratos>();
+        servicos.AddScoped<IUnidadeDeTrabalho, UnidadeDeTrabalho>();
+
+        servicos.AddScoped<ContratarProposta>();
+        servicos.AddScoped<RegistrarPagamento>();
+        servicos.AddScoped<ConsultarContrato>();
         servicos.AddSingleton<IConsultaDeBureau, BureauSimulado>();
 
         // Registrados pela interface para o resolvedor receber todos de uma vez: sistema

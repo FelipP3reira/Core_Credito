@@ -13,7 +13,7 @@ public class CicloDaPropostaTestes
 
     private sealed record Cadastrada(Guid Id, EstadoDaProposta Estado);
 
-    private sealed record Mudanca(EstadoDaProposta De, EstadoDaProposta Para, string Origem);
+    private sealed record Mudanca(int Sequencia, EstadoDaProposta De, EstadoDaProposta Para, string Origem);
 
     private sealed record Detalhe(
         Guid Id,

@@ -12,7 +12,17 @@ public sealed record LaudoDaDecisao(
     DateTimeOffset AvaliadaEm,
     IReadOnlyList<LinhaDoLaudo> Regras);
 
-public sealed record MudancaDeEstado(EstadoDaProposta De, EstadoDaProposta Para, DateTimeOffset OcorridaEm, string Origem);
+/// <param name="Sequencia">
+/// Posicao na trilha. Vai na resposta porque e a chave de ordenacao: quem consome a
+/// auditoria precisa saber que a ordem e essa, e nao a da data — que se repete quando duas
+/// transicoes acontecem na mesma requisicao.
+/// </param>
+public sealed record MudancaDeEstado(
+    int Sequencia,
+    EstadoDaProposta De,
+    EstadoDaProposta Para,
+    DateTimeOffset OcorridaEm,
+    string Origem);
 
 /// <param name="Cpf">Sempre mascarado. Nao existe caminho de leitura que devolva o numero inteiro.</param>
 public sealed record DetalheDaProposta(

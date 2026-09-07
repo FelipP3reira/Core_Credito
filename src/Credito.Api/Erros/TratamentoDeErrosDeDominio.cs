@@ -64,6 +64,7 @@ public sealed partial class TratamentoDeErrosDeDominio : IExceptionHandler
     private static (int Status, string Titulo)? Traduzir(Exception excecao) => excecao switch
     {
         PropostaNaoEncontradaException => (StatusCodes.Status404NotFound, "Proposta nao encontrada"),
+        ContratoNaoEncontradoException => (StatusCodes.Status404NotFound, "Contrato nao encontrado"),
         ChaveDeIdempotenciaReutilizadaException =>
             (StatusCodes.Status409Conflict, "Chave de idempotencia reutilizada"),
         TransicaoInvalidaException => (StatusCodes.Status409Conflict, "Transicao de estado invalida"),

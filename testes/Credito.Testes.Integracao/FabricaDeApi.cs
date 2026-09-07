@@ -38,6 +38,12 @@ public sealed class FabricaDeApi : WebApplicationFactory<Program>, IAsyncLifetim
     /// </summary>
     public BureauControlado Bureau { get; } = new();
 
+    /// <summary>
+    /// Relogio da API. Comeca na hora de verdade; o teste que precisa de tempo passando
+    /// avanca e reinicia depois, ja que o xUnit roda a colecao em sequencia.
+    /// </summary>
+    public RelogioControlado Relogio { get; } = new();
+
     public async Task InitializeAsync()
     {
         await banco.StartAsync();
@@ -59,7 +65,11 @@ public sealed class FabricaDeApi : WebApplicationFactory<Program>, IAsyncLifetim
         ArgumentNullException.ThrowIfNull(builder);
 
         builder.AplicarConfiguracaoDeTeste(StringDeConexao, SubmissoesPermitidas);
-        builder.ConfigureTestServices(servicos => servicos.AddSingleton<IConsultaDeBureau>(Bureau));
+        builder.ConfigureTestServices(servicos =>
+        {
+            servicos.AddSingleton<IConsultaDeBureau>(Bureau);
+            servicos.AddSingleton<TimeProvider>(Relogio);
+        });
     }
 }
 

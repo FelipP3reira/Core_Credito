@@ -13,17 +13,20 @@ public sealed class AnalisarProposta
     private readonly IRepositorioDePropostas repositorio;
     private readonly MontadorDoContexto montador;
     private readonly MotorDeDecisao motor;
+    private readonly IUnidadeDeTrabalho unidade;
     private readonly TimeProvider relogio;
 
     public AnalisarProposta(
         IRepositorioDePropostas repositorio,
         MontadorDoContexto montador,
         MotorDeDecisao motor,
+        IUnidadeDeTrabalho unidade,
         TimeProvider relogio)
     {
         this.repositorio = repositorio;
         this.montador = montador;
         this.motor = motor;
+        this.unidade = unidade;
         this.relogio = relogio;
     }
 
@@ -56,7 +59,7 @@ public sealed class AnalisarProposta
 
         // Uma gravacao so: as duas transicoes, o laudo e o estado novo entram juntos ou
         // nao entram. Proposta aprovada sem laudo gravado seria o pior resultado possivel.
-        await repositorio.Salvar(cancelamento).ConfigureAwait(false);
+        await unidade.Salvar(cancelamento).ConfigureAwait(false);
 
         return new ResultadoDaDecisao(
             proposta.Id,

@@ -19,6 +19,7 @@ internal static class EndpointsDePropostas
         propostas.MapPost("/", Cadastrar).RequireRateLimiting(PoliticaDeLimite);
         propostas.MapPost("/{id:guid}/analise", Analisar);
         propostas.MapPost("/{id:guid}/simulacao", Simular);
+        propostas.MapPost("/{id:guid}/cancelamento", Cancelar);
         propostas.MapGet("/{id:guid}", Detalhar);
     }
 
@@ -77,6 +78,12 @@ internal static class EndpointsDePropostas
         SimularProposta simular,
         CancellationToken cancelamento) =>
         Results.Ok(await simular.Executar(id, cancelamento).ConfigureAwait(false));
+
+    private static async Task<IResult> Cancelar(
+        Guid id,
+        CancelarProposta cancelar,
+        CancellationToken cancelamento) =>
+        Results.Ok(new RespostaDeCadastro(id, await cancelar.Executar(id, cancelamento).ConfigureAwait(false)));
 
     private static async Task<IResult> Detalhar(
         Guid id,
