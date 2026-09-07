@@ -1,40 +1,45 @@
+using Credito.Aplicacao.Analises;
 using Credito.Aplicacao.Erros;
 using Credito.Aplicacao.Portas;
-using Credito.Dominio.Amortizacao;
+using Credito.Dominio.Erros;
 
 namespace Credito.Aplicacao.Propostas;
 
 /// <summary>
-/// Monta o cronograma de uma proposta com a taxa informada.
+/// Monta o cronograma que a proposta teria com a taxa da politica vigente.
 /// </summary>
 /// <remarks>
-/// A taxa vem de fora por enquanto. Quando o motor de decisao existir, ela sai da faixa
-/// de score da politica vigente e este caso de uso deixa de aceita-la como argumento.
+/// A taxa nao vem mais de fora: sai da faixa de score da politica, igual a que a analise
+/// usaria. Simulacao que aceitasse qualquer taxa mostraria uma parcela que o motor jamais
+/// ofereceria.
 /// <para>
-/// A simulacao nao muda estado nem grava nada: e projecao do que aconteceria, e por isso
-/// vale em qualquer estado da proposta. O cronograma so vira dado persistido na
-/// contratacao.
+/// Nao muda estado nem grava nada, e por isso vale em qualquer estado da proposta. O
+/// cronograma so vira dado persistido na contratacao.
 /// </para>
 /// </remarks>
 public sealed class SimularProposta
 {
     private readonly IRepositorioDePropostas repositorio;
-    private readonly SistemasDeAmortizacao sistemas;
+    private readonly MontadorDoContexto montador;
 
-    public SimularProposta(IRepositorioDePropostas repositorio, SistemasDeAmortizacao sistemas)
+    public SimularProposta(IRepositorioDePropostas repositorio, MontadorDoContexto montador)
     {
         this.repositorio = repositorio;
-        this.sistemas = sistemas;
+        this.montador = montador;
     }
 
-    public async Task<SimulacaoDaProposta> Executar(Guid id, decimal taxaMensal, CancellationToken cancelamento)
+    public async Task<SimulacaoDaProposta> Executar(Guid id, CancellationToken cancelamento)
     {
         var proposta = await repositorio.PorId(id, cancelamento).ConfigureAwait(false)
             ?? throw new PropostaNaoEncontradaException(id);
 
-        var cronograma = sistemas
-            .De(proposta.Sistema)
-            .Gerar(proposta.ValorSolicitado, taxaMensal, proposta.PrazoEmMeses);
+        var contexto = await montador.Montar(proposta, cancelamento).ConfigureAwait(false);
+
+        // Aqui, ao contrario da analise, cronograma impossivel e erro do pedido: quem
+        // simula quer o cronograma, e nao ha laudo para explicar a ausencia dele.
+        var cronograma = contexto.Cronograma
+            ?? throw new AmortizacaoInvalidaException(
+                "Valor, taxa e prazo nao fecham em centavos: o cronograma nao existe para esta proposta.");
 
         return new SimulacaoDaProposta(
             proposta.Id,
@@ -42,6 +47,7 @@ public sealed class SimularProposta
             cronograma.TaxaMensal,
             proposta.PrazoEmMeses,
             cronograma.Sistema,
+            contexto.Score,
             cronograma.PrimeiraParcela,
             cronograma.UltimaParcela,
             cronograma.TotalPago,

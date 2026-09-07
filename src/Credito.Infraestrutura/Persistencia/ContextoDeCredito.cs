@@ -1,3 +1,4 @@
+using Credito.Dominio.Politicas;
 using Credito.Dominio.Propostas;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,6 +11,8 @@ public sealed class ContextoDeCredito : DbContext
     }
 
     public DbSet<Proposta> Propostas => Set<Proposta>();
+
+    public DbSet<PoliticaDeCredito> Politicas => Set<PoliticaDeCredito>();
 
     // Nome do parametro imposto pela assinatura da classe base.
     protected override void OnModelCreating(ModelBuilder modelBuilder)

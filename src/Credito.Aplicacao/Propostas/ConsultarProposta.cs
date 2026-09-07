@@ -1,5 +1,7 @@
+using Credito.Aplicacao.Analises;
 using Credito.Aplicacao.Erros;
 using Credito.Aplicacao.Portas;
+using Credito.Dominio.Propostas;
 
 namespace Credito.Aplicacao.Propostas;
 
@@ -12,6 +14,29 @@ public sealed class ConsultarProposta
     {
         this.repositorio = repositorio;
         this.protetor = protetor;
+    }
+
+    // A maquina de estados so permite uma decisao por proposta; a mais recente e a unica.
+    private static LaudoDaDecisao? Laudo(Proposta proposta)
+    {
+        var decisao = proposta.Decisoes.OrderByDescending(linha => linha.AvaliadaEm).FirstOrDefault();
+
+        return decisao is null
+            ? null
+            : new LaudoDaDecisao(
+                decisao.Aprovada,
+                decisao.ScoreObservado,
+                decisao.TaxaMensalAplicada,
+                decisao.VersaoDaPolitica,
+                decisao.AvaliadaEm,
+                [.. decisao.Avaliacoes
+                    .OrderBy(avaliacao => avaliacao.Ordem)
+                    .Select(avaliacao => new LinhaDoLaudo(
+                        avaliacao.Codigo,
+                        avaliacao.Aprovou,
+                        avaliacao.Motivo,
+                        avaliacao.ValorObservado,
+                        avaliacao.LimiteExigido))]);
     }
 
     public async Task<DetalheDaProposta> Executar(Guid id, CancellationToken cancelamento)
@@ -33,8 +58,9 @@ public sealed class ConsultarProposta
             proposta.CriadaEm,
             proposta.AtualizadaEm,
             [.. proposta.Transicoes
-                .OrderBy(transicao => transicao.OcorridaEm)
+                .OrderBy(transicao => transicao.Sequencia)
                 .Select(transicao => new MudancaDeEstado(
-                    transicao.De, transicao.Para, transicao.OcorridaEm, transicao.Origem))]);
+                    transicao.De, transicao.Para, transicao.OcorridaEm, transicao.Origem))],
+            Laudo(proposta));
     }
 }

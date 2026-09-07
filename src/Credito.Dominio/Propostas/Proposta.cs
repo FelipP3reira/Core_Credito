@@ -1,5 +1,6 @@
 using Credito.Dominio.Amortizacao;
 using Credito.Dominio.Comum;
+using Credito.Dominio.Decisoes;
 using Credito.Dominio.Erros;
 
 namespace Credito.Dominio.Propostas;
@@ -15,6 +16,7 @@ public sealed class Proposta
     public const int TamanhoMaximoDoNome = 150;
 
     private readonly List<TransicaoDeEstado> transicoes = [];
+    private readonly List<Decisao> decisoes = [];
 
     private Proposta()
     {
@@ -75,6 +77,13 @@ public sealed class Proposta
 
     public IReadOnlyList<TransicaoDeEstado> Transicoes => transicoes;
 
+    /// <summary>
+    /// A maquina de estados so permite uma decisao por proposta — negada e terminal e
+    /// aprovada segue para contratacao. E colecao porque o registro e append-only: se um
+    /// dia couber reanalise, ela entra ao lado da anterior em vez de apagar.
+    /// </summary>
+    public IReadOnlyList<Decisao> Decisoes => decisoes;
+
     public static Proposta Rascunho(DadosDaProposta dados, DateTimeOffset agora)
     {
         Validar(dados, DateOnly.FromDateTime(agora.UtcDateTime));
@@ -87,11 +96,43 @@ public sealed class Proposta
     public void Cancelar(DateTimeOffset agora, string origem) =>
         Transitar(EstadoDaProposta.Cancelada, agora, origem);
 
+    public void Aprovar(Decisao decisao, DateTimeOffset agora, string origem) =>
+        Decidir(decisao, EstadoDaProposta.Aprovada, agora, origem);
+
+    public void Negar(Decisao decisao, DateTimeOffset agora, string origem) =>
+        Decidir(decisao, EstadoDaProposta.Negada, agora, origem);
+
+    /// <summary>
+    /// Aprovar e negar exigem o laudo na assinatura. Nao e documentacao: e o compilador
+    /// impedindo que exista caminho de codigo capaz de decidir sem registrar por que.
+    /// </summary>
+    private void Decidir(Decisao decisao, EstadoDaProposta destino, DateTimeOffset agora, string origem)
+    {
+        ArgumentNullException.ThrowIfNull(decisao);
+
+        if (decisao.PropostaId != Id)
+        {
+            throw new PropostaInvalidaException("O laudo apresentado e de outra proposta.");
+        }
+
+        var concluido = decisao.Aprovada ? EstadoDaProposta.Aprovada : EstadoDaProposta.Negada;
+        if (concluido != destino)
+        {
+            throw new PropostaInvalidaException(
+                $"O laudo conclui {concluido} e a transicao pedida foi {destino}.");
+        }
+
+        // Transitar primeiro: e ele que pode recusar. Guardar o laudo antes deixaria o
+        // parecer preso a uma proposta que nunca mudou de estado.
+        Transitar(destino, agora, origem);
+        decisoes.Add(decisao);
+    }
+
     private void Transitar(EstadoDaProposta destino, DateTimeOffset agora, string origem)
     {
         MaquinaDeEstados.GarantirTransicao(Estado, destino);
 
-        transicoes.Add(new TransicaoDeEstado(Id, Estado, destino, agora, origem));
+        transicoes.Add(new TransicaoDeEstado(Id, transicoes.Count + 1, Estado, destino, agora, origem));
         Estado = destino;
         AtualizadaEm = agora;
     }

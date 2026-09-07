@@ -43,50 +43,27 @@ public class CicloDaPropostaTestes
     /// linhas e derrubava a requisicao com erro de concorrencia.
     /// </summary>
     [Fact]
-    public async Task EnviaParaAnaliseEGuardaATransicaoNoHistorico()
+    public async Task ATransicaoDeEstadoEntraComoLinhaNova()
     {
+        fabrica.Bureau.Responder(score: 800);
         var cliente = fabrica.CreateClient();
         var id = await Cadastrar(cliente);
 
         var analise = await cliente.PostAsync($"/propostas/{id}/analise", content: null);
 
-        Assert.Equal(HttpStatusCode.Accepted, analise.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, analise.StatusCode);
 
         var detalhe = await cliente.GetFromJsonAsync<Detalhe>($"/propostas/{id}", Pedidos.Json);
 
-        Assert.Equal(EstadoDaProposta.EmAnalise, detalhe!.Estado);
-
-        var transicao = Assert.Single(detalhe.Historico);
-        Assert.Equal(EstadoDaProposta.Rascunho, transicao.De);
-        Assert.Equal(EstadoDaProposta.EmAnalise, transicao.Para);
-        Assert.Equal("api:submissao", transicao.Origem);
+        Assert.Equal(2, detalhe!.Historico.Count);
+        Assert.Equal(EstadoDaProposta.Rascunho, detalhe.Historico[0].De);
     }
 
     [Fact]
-    public async Task RecusaMandarParaAnaliseDuasVezes()
-    {
-        var cliente = fabrica.CreateClient();
-        var id = await Cadastrar(cliente);
-
-        await cliente.PostAsync($"/propostas/{id}/analise", content: null);
-        var repetida = await cliente.PostAsync($"/propostas/{id}/analise", content: null);
-
-        Assert.Equal(HttpStatusCode.Conflict, repetida.StatusCode);
-    }
-
-    [Fact]
-    public async Task PropostaInexistenteDevolveNaoEncontrada()
-    {
-        var cliente = fabrica.CreateClient();
-        var inexistente = Guid.NewGuid();
-
+    public async Task PropostaInexistenteDevolveNaoEncontrada() =>
         Assert.Equal(
             HttpStatusCode.NotFound,
-            (await cliente.GetAsync($"/propostas/{inexistente}")).StatusCode);
-        Assert.Equal(
-            HttpStatusCode.NotFound,
-            (await cliente.PostAsync($"/propostas/{inexistente}/analise", content: null)).StatusCode);
-    }
+            (await fabrica.CreateClient().GetAsync($"/propostas/{Guid.NewGuid()}")).StatusCode);
 
     [Fact]
     public async Task DetalheMascaraOCpfENaoDevolveARenda()

@@ -1,8 +1,10 @@
 using System.Globalization;
 using System.Security.Cryptography;
+using Credito.Aplicacao.Portas;
 using Credito.Infraestrutura.Persistencia;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -30,6 +32,12 @@ public sealed class FabricaDeApi : WebApplicationFactory<Program>, IAsyncLifetim
 
     public string StringDeConexao => banco.GetConnectionString();
 
+    /// <summary>
+    /// Resposta do birô, ditada pelo teste. Compartilhada entre as classes da colecao, que
+    /// o xUnit roda em sequencia — cada teste que se importa com score ajusta antes de agir.
+    /// </summary>
+    public BureauControlado Bureau { get; } = new();
+
     public async Task InitializeAsync()
     {
         await banco.StartAsync();
@@ -51,6 +59,7 @@ public sealed class FabricaDeApi : WebApplicationFactory<Program>, IAsyncLifetim
         ArgumentNullException.ThrowIfNull(builder);
 
         builder.AplicarConfiguracaoDeTeste(StringDeConexao, SubmissoesPermitidas);
+        builder.ConfigureTestServices(servicos => servicos.AddSingleton<IConsultaDeBureau>(Bureau));
     }
 }
 

@@ -12,6 +12,7 @@ public sealed class TransicaoDeEstado
 
     internal TransicaoDeEstado(
         Guid propostaId,
+        int sequencia,
         EstadoDaProposta de,
         EstadoDaProposta para,
         DateTimeOffset ocorridaEm,
@@ -19,6 +20,7 @@ public sealed class TransicaoDeEstado
     {
         Id = Guid.CreateVersion7();
         PropostaId = propostaId;
+        Sequencia = sequencia;
         De = de;
         Para = para;
         OcorridaEm = ocorridaEm;
@@ -28,6 +30,16 @@ public sealed class TransicaoDeEstado
     public Guid Id { get; private set; }
 
     public Guid PropostaId { get; private set; }
+
+    /// <summary>
+    /// Posicao na trilha, comecando em 1.
+    /// </summary>
+    /// <remarks>
+    /// Nao da para ordenar so pela data: a analise faz duas transicoes na mesma requisicao,
+    /// com o mesmo instante, e a trilha sairia em ordem indefinida — justamente na hora em
+    /// que ela precisa ser lida como sequencia.
+    /// </remarks>
+    public int Sequencia { get; private set; }
 
     public EstadoDaProposta De { get; private set; }
 

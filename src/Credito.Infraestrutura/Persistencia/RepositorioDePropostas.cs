@@ -15,9 +15,17 @@ public sealed class RepositorioDePropostas : IRepositorioDePropostas
     public RepositorioDePropostas(ContextoDeCredito contexto) => this.contexto = contexto;
 
     public Task<Proposta?> PorId(Guid id, CancellationToken cancelamento) =>
+        ComHistorico().FirstOrDefaultAsync(proposta => proposta.Id == id, cancelamento);
+
+    /// <remarks>
+    /// Traz o historico e o laudo junto porque toda leitura de proposta neste sistema quer
+    /// os dois: a consulta para mostrar e a analise para decidir em cima do que ja existe.
+    /// </remarks>
+    private IQueryable<Proposta> ComHistorico() =>
         contexto.Propostas
             .Include(proposta => proposta.Transicoes)
-            .FirstOrDefaultAsync(proposta => proposta.Id == id, cancelamento);
+            .Include(proposta => proposta.Decisoes)
+                .ThenInclude(decisao => decisao.Avaliacoes);
 
     /// <remarks>
     /// Tenta inserir e trata a colisao, em vez de consultar antes: entre a consulta e o
@@ -59,9 +67,7 @@ public sealed class RepositorioDePropostas : IRepositorioDePropostas
     public Task Salvar(CancellationToken cancelamento) => contexto.SaveChangesAsync(cancelamento);
 
     private Task<Proposta?> PorChaveIdempotencia(string chave, CancellationToken cancelamento) =>
-        contexto.Propostas
-            .Include(proposta => proposta.Transicoes)
-            .FirstOrDefaultAsync(proposta => proposta.ChaveIdempotencia == chave, cancelamento);
+        ComHistorico().FirstOrDefaultAsync(proposta => proposta.ChaveIdempotencia == chave, cancelamento);
 
     private static bool EhViolacaoDeUnicidade(DbUpdateException erro) =>
         erro.InnerException is SqlException falha
