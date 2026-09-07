@@ -69,6 +69,15 @@ public sealed partial class TratamentoDeErrosDeDominio : IExceptionHandler
             (StatusCodes.Status409Conflict, "Chave de idempotencia reutilizada"),
         TransicaoInvalidaException => (StatusCodes.Status409Conflict, "Transicao de estado invalida"),
 
+        // A recusa do banco e resposta, nao falha: saldo insuficiente e conta bloqueada
+        // sao decisoes do outro lado, e repetir o pedido nao muda nada.
+        ContaBancariaRecusouException => (StatusCodes.Status409Conflict, "A conta bancaria recusou"),
+
+        // 502 e nao 500: o problema esta no servico de tras, e quem chama pode repetir com
+        // a mesma chave sem risco de desembolsar duas vezes.
+        ContaBancariaIndisponivelException =>
+            (StatusCodes.Status502BadGateway, "Plataforma bancaria indisponivel"),
+
         // Outra requisicao mexeu na mesma proposta entre a leitura e a gravacao.
         DbUpdateConcurrencyException =>
             (StatusCodes.Status409Conflict, "A proposta mudou durante o pedido — tente de novo"),

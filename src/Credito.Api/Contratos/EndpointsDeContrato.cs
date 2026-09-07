@@ -6,7 +6,11 @@ namespace Credito.Api.Contratos;
 /// <param name="PrimeiroVencimento">
 /// Opcional. Sem ele, a primeira parcela vence trinta dias depois da contratacao.
 /// </param>
-public sealed record PedidoDeContratacao(DateOnly? PrimeiroVencimento);
+/// <param name="ContaId">
+/// A conta da Plataforma Bancaria que recebe o desembolso e paga as parcelas. Opcional:
+/// sem ela o contrato existe do mesmo jeito e a liquidacao acontece por fora.
+/// </param>
+public sealed record PedidoDeContratacao(DateOnly? PrimeiroVencimento, Guid? ContaId);
 
 internal static class EndpointsDeContrato
 {
@@ -19,6 +23,7 @@ internal static class EndpointsDeContrato
 
         contrato.MapPost("/", Contratar);
         contrato.MapGet("/", Detalhar);
+        contrato.MapPost("/desembolso", Desembolsar);
         contrato.MapPost("/parcelas/{numero:int}/pagamento", Pagar);
     }
 
@@ -29,7 +34,7 @@ internal static class EndpointsDeContrato
         CancellationToken cancelamento)
     {
         var detalhe = await contratar
-            .Executar(id, pedido?.PrimeiroVencimento, cancelamento)
+            .Executar(id, pedido?.PrimeiroVencimento, pedido?.ContaId, cancelamento)
             .ConfigureAwait(false);
 
         return Results.Created($"/propostas/{id}/contrato", detalhe);
@@ -40,6 +45,34 @@ internal static class EndpointsDeContrato
         ConsultarContrato consultar,
         CancellationToken cancelamento) =>
         Results.Ok(await consultar.Executar(id, cancelamento).ConfigureAwait(false));
+
+    /// <summary>
+    /// Poe o valor financiado na conta do cliente.
+    /// </summary>
+    /// <remarks>
+    /// Rota separada da contratacao porque sao dois sistemas: assinar grava aqui, creditar
+    /// grava no banco, e nao existe transacao cobrindo os dois. Sendo um pedido a parte,
+    /// ele pode ser repetido ate dar certo — a chave e derivada do contrato, entao repetir
+    /// nunca credita duas vezes.
+    /// <para>
+    /// Sem cabecalho de idempotencia: a chave nao vem do cliente justamente porque ela
+    /// precisa ser sempre a mesma para o mesmo contrato. Chave escolhida por quem chama
+    /// permitiria dois desembolsos com chaves diferentes.
+    /// </para>
+    /// </remarks>
+    private static async Task<IResult> Desembolsar(
+        Guid id,
+        DesembolsarContrato desembolsar,
+        CancellationToken cancelamento)
+    {
+        var desembolso = await desembolsar.Executar(id, cancelamento).ConfigureAwait(false);
+
+        // 201 na primeira vez e 200 quando o banco reconheceu a chave: quem chama distingue
+        // "acabou de entrar" de "ja tinha entrado" sem comparar corpo.
+        return desembolso.Novo
+            ? Results.Created($"/propostas/{id}/contrato", desembolso)
+            : Results.Ok(desembolso);
+    }
 
     /// <remarks>
     /// A chave de idempotencia aqui nao e conveniencia: pagamento reenviado por tempo

@@ -44,6 +44,9 @@ public sealed class FabricaDeApi : WebApplicationFactory<Program>, IAsyncLifetim
     /// </summary>
     public RelogioControlado Relogio { get; } = new();
 
+    /// <summary>A Plataforma Bancaria, substituida pelo dublê que o teste dirige.</summary>
+    public ContaBancariaControlada Banco { get; } = new();
+
     public async Task InitializeAsync()
     {
         await banco.StartAsync();
@@ -69,6 +72,7 @@ public sealed class FabricaDeApi : WebApplicationFactory<Program>, IAsyncLifetim
         {
             servicos.AddSingleton<IConsultaDeBureau>(Bureau);
             servicos.AddSingleton<TimeProvider>(Relogio);
+            servicos.AddSingleton<IContaBancaria>(Banco);
         });
     }
 }
@@ -93,5 +97,9 @@ internal static class ConfiguracaoDeTeste
                 ["LimiteDeBusca:Permitidas"] =
                     buscasPermitidas.ToString(CultureInfo.InvariantCulture),
                 ["LimiteDeBusca:JanelaEmSegundos"] = "60",
+
+                // A configuracao e validada na subida mesmo com o cliente HTTP substituido:
+                // sem endereco valido aqui, a API nao sobe e nenhum teste roda.
+                ["ContaBancaria:BaseUrl"] = "http://plataforma-bancaria-de-teste",
             }));
 }

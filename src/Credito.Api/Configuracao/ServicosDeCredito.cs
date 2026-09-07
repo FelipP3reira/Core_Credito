@@ -9,6 +9,7 @@ using Credito.Dominio.Amortizacao;
 using Credito.Dominio.Decisoes;
 using Credito.Dominio.Decisoes.Regras;
 using Credito.Aplicacao.Propostas;
+using Credito.Infraestrutura.Banco;
 using Credito.Infraestrutura.Bureau;
 using Credito.Infraestrutura.Persistencia;
 using Credito.Infraestrutura.Seguranca;
@@ -59,6 +60,7 @@ internal static class ServicosDeCredito
 
         servicos.AddScoped<ContratarProposta>();
         servicos.AddScoped<RegistrarPagamento>();
+        servicos.AddScoped<DesembolsarContrato>();
         servicos.AddScoped<ConsultarContrato>();
         servicos.AddSingleton<IConsultaDeBureau, BureauSimulado>();
 
@@ -80,10 +82,41 @@ internal static class ServicosDeCredito
 
         servicos.AddScoped<IValidator<PedidoDeCadastro>, ValidadorDeCadastro>();
 
+        servicos.AdicionarContaBancaria(configuracao);
+
         servicos.AddProblemDetails();
         servicos.AddExceptionHandler<TratamentoDeErrosDeDominio>();
 
         return servicos.AdicionarLimitesPorIp();
+    }
+
+    /// <summary>
+    /// O cliente HTTP da Plataforma Bancaria.
+    /// </summary>
+    /// <remarks>
+    /// Cliente tipado, e nao um <c>HttpClient</c> novo por chamada: o gerenciador reaproveita
+    /// as conexoes e ainda solta o DNS de tempos em tempos, que sao as duas coisas que dao
+    /// errado quando se instancia na mao.
+    /// <para>
+    /// A configuracao e validada na subida. Endereco errado descoberto na primeira
+    /// contratacao seria um desembolso falhando em producao para dizer o que um arquivo de
+    /// configuracao ja podia ter dito.
+    /// </para>
+    /// </remarks>
+    private static void AdicionarContaBancaria(this IServiceCollection servicos, IConfiguration configuracao)
+    {
+        servicos.AddOptions<OpcoesDaContaBancaria>()
+            .Bind(configuracao.GetSection(OpcoesDaContaBancaria.Secao))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        servicos.AddHttpClient<IContaBancaria, ContaBancariaHttp>((provedor, cliente) =>
+        {
+            var opcoes = provedor.GetRequiredService<IOptions<OpcoesDaContaBancaria>>().Value;
+
+            cliente.BaseAddress = new Uri(opcoes.BaseUrl);
+            cliente.Timeout = TimeSpan.FromSeconds(opcoes.TempoLimiteEmSegundos);
+        });
     }
 
     private static IServiceCollection AdicionarLimitesPorIp(this IServiceCollection servicos) =>

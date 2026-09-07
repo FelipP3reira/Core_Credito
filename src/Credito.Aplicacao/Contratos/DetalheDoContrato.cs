@@ -16,6 +16,8 @@ public sealed record ParcelaDoContrato(
 public sealed record DetalheDoContrato(
     Guid Id,
     Guid PropostaId,
+    Guid? ContaId,
+    DateTimeOffset? DesembolsadoEm,
     decimal ValorFinanciado,
     decimal TaxaMensal,
     SistemaDeAmortizacao Sistema,
@@ -34,6 +36,8 @@ public sealed record DetalheDoContrato(
         return new DetalheDoContrato(
             contrato.Id,
             contrato.PropostaId,
+            contrato.ContaId,
+            contrato.DesembolsadoEm,
             contrato.ValorFinanciado,
             contrato.TaxaMensal,
             contrato.Sistema,
@@ -64,4 +68,6 @@ public sealed record PagamentoRegistrado(
     decimal TotalPago,
     decimal SaldoAberto,
     bool ContratoQuitado,
-    EstadoDaProposta EstadoDaProposta);
+    EstadoDaProposta EstadoDaProposta,
+    Guid? LancamentoNaConta,
+    decimal? SaldoDaConta);

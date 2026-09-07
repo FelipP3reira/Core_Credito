@@ -36,9 +36,14 @@ public sealed class ContratarProposta
         this.relogio = relogio;
     }
 
+    /// <param name="contaId">
+    /// A conta que vai receber o desembolso. Opcional: sem ela o contrato existe do mesmo
+    /// jeito e a liquidacao acontece por fora.
+    /// </param>
     public async Task<DetalheDoContrato> Executar(
         Guid propostaId,
         DateOnly? primeiroVencimento,
+        Guid? contaId,
         CancellationToken cancelamento)
     {
         var proposta = await propostas.PorId(propostaId, cancelamento).ConfigureAwait(false)
@@ -60,7 +65,8 @@ public sealed class ContratarProposta
             proposta.Id,
             cronograma,
             primeiroVencimento ?? DateOnly.FromDateTime(agora.UtcDateTime).AddDays(DiasPadraoAteOPrimeiroVencimento),
-            agora);
+            agora,
+            contaId);
 
         proposta.Contratar(contrato, agora, Origem);
         contratos.Adicionar(contrato);
