@@ -10,12 +10,20 @@ requisições simultâneas e CPF que não aparece em log nem em coluna de banco.
 
 ## Estado atual
 
-A proposta nasce, entra em análise, pode ser consultada e simulada — com idempotência,
-validação, limite de submissão e proteção do CPF já no lugar. O cálculo de parcelas
-existe nos dois sistemas, Price e SAC.
+A proposta nasce, é analisada e recebe um laudo dizendo regra a regra por que foi aprovada
+ou negada — com idempotência, validação, limite de submissão e proteção do CPF já no lugar.
+O cálculo de parcelas existe nos dois sistemas, Price e SAC, e a taxa sai da faixa de score
+da política vigente.
 
-O motor de decisão e a contratação ainda não existem. O que já está escrito está
-testado; o que falta está listado no fim.
+```
+POST /propostas               cadastra em rascunho (exige Idempotency-Key)
+POST /propostas/{id}/analise  decide e grava o laudo
+POST /propostas/{id}/simulacao mostra o cronograma que essa proposta teria
+GET  /propostas/{id}          detalhe, trilha de estados e laudo
+```
+
+A contratação ainda não existe. O que já está escrito está testado; o que falta está
+listado no fim.
 
 ## Como rodar
 
@@ -66,8 +74,8 @@ entra pela `Aplicacao`. A `Api` só encosta na `Infraestrutura` no `Program.cs`,
 amarrar a injeção de dependência.
 
 O domínio não referencia EF, ASP.NET nem nada da Microsoft. É isso que permite testar
-regra de negócio sem subir banco — e é por isso que 2.821 dos 2.845 testes rodam em
-pouco mais de meio segundo. Só os 24 de integração precisam de Docker.
+regra de negócio sem subir banco — e é por isso que 2.890 dos 2.921 testes rodam em
+pouco mais de um segundo. Só os 31 de integração precisam de Docker.
 
 ## Máquina de estados
 
@@ -91,6 +99,82 @@ memória de quem capturou o erro.
 O teste percorre os 64 pares do produto cartesiano contra uma cópia da tabela escrita à
 parte, a partir do desenho do fluxo. Duplicar o dado é o objetivo: divergência entre as
 duas versões acusa erro de digitação na tabela real.
+
+## O motor de decisão
+
+Cinco regras, cada uma em sua classe: restrição cadastral, score mínimo, valor dentro do
+produto, prazo dentro do produto e comprometimento de renda. Um exemplo de laudo, como sai
+da API:
+
+```
+[ok ] RESTRICAO_CADASTRAL       Sem restricao cadastral.
+[ok ] SCORE_MINIMO              Score 843 atende o minimo de 500.
+[ok ] VALOR_DENTRO_DO_PRODUTO   Valor de R$ 20.000,00 dentro da faixa do produto (R$ 1.000,00 a R$ 100.000,00).
+[ok ] PRAZO_DENTRO_DO_PRODUTO   Prazo de 24 meses dentro da faixa do produto (6 meses a 96 meses).
+[ok ] COMPROMETIMENTO_DE_RENDA  Parcela de R$ 1.045,48 compromete 12,3% da renda, dentro do limite de 30%.
+```
+
+### O motor não tem atalho, e isso é o ponto
+
+Todas as regras rodam, sempre, mesmo depois da primeira reprovação. Parar antes seria mais
+rápido e gravaria uma causa quando existiam três — e quem corrigisse só aquela voltaria a
+ser negado sem entender por quê. Auditoria completa é o motivo de o sistema existir;
+economizar avaliação de regra em memória não paga esse preço.
+
+Uma Specification devolvendo `bool` não serviria: o requisito é guardar *por que*, e um
+booleano perde isso no caminho. Cada regra devolve motivo, valor observado e limite
+exigido. Os números ficam nulos nas regras que não têm número, como restrição cadastral —
+preencher com zero só atrapalharia quem consultasse o laudo depois.
+
+### A análise acontece em duas fases
+
+As regras teriam dependência entre si se cada uma fosse buscar o que precisa: o
+comprometimento precisa da parcela, que precisa da taxa, que sai da faixa de score. Então
+a primeira fase monta tudo — consulta ao birô, taxa da faixa, simulação do cronograma — e
+congela num registro imutável. A segunda avalia as regras contra ele, em qualquer ordem.
+
+O ganho é concreto: cada regra vira função pura de um registro. O teste unitário é montar
+o contexto na mão e chamar `Avaliar`, sem simulação de dependência, sem banco, sem ordem.
+
+### A política é versionada, e a decisão guarda qual versão aplicou
+
+Não é refinamento. Mudar o score mínimo no mês que vem tornaria toda negativa passada
+incompreensível se a decisão não registrasse sob qual versão foi tomada — e explicar
+decisão antiga é exatamente o que a auditoria vem cobrar.
+
+As faixas de taxa precisam cobrir a escala inteira de score, de 0 a 1000, e a política
+recusa buraco e sobreposição na construção. Cobrir até o fundo tem um motivo específico:
+score abaixo do mínimo ainda recebe taxa, a da pior faixa, e com ela dá para montar o
+cronograma e avaliar **todas** as regras. A proposta é negada pela regra de score, e não
+por faltar taxa para calcular.
+
+### Não existe decidir sem registrar por quê
+
+`Aprovar` e `Negar` exigem o laudo na assinatura. Não é documentação — é o compilador
+impedindo que exista caminho de código capaz de mudar o estado sem gravar o parecer. O
+agregado ainda recusa laudo de outra proposta e laudo cuja conclusão discorda da transição
+pedida: aprovar carregando um parecer que reprovou seria o jeito mais silencioso de fraudar
+a auditoria.
+
+Análise e laudo entram numa transação só. Proposta aprovada sem laudo gravado seria o pior
+resultado possível deste sistema.
+
+### Cronograma impossível é tratado diferente em cada caminho
+
+Na análise vira reprovação explicada no laudo, porque proposta impossível merece parecer,
+não erro de servidor. Na simulação vira 400, porque quem simula quer o cronograma e não há
+laudo para explicar a ausência dele.
+
+### O birô é um substituto, e é determinístico de propósito
+
+Não há integração real. O substituto deriva score e restrição de um resumo do próprio CPF,
+então o mesmo solicitante recebe sempre a mesma resposta. Sem isso, reanalisar a mesma
+proposta daria resultado diferente a cada vez e nenhuma demonstração seria reproduzível.
+
+A porta recebe o CPF em texto claro de propósito: birô de verdade precisa do número, e
+deixar isso na assinatura obriga quem chama a passar por `Revelar` — que é justamente o
+ponto que uma revisão de segurança quer encontrar de primeira. A integração real entra
+trocando a classe no registro de dependências, sem tocar em nada do domínio.
 
 ## Decisões e trade-offs
 
@@ -236,17 +320,25 @@ crédito ajustável.
 - Segredos em `.env`, fora do git, com `.env.example` versionado.
 - HSTS e redirecionamento de HTTPS fora de desenvolvimento; `nosniff`, `no-referrer` e
   `DENY` de enquadramento em toda resposta.
-- Histórico de transições é append-only: não existe caminho de alteração nem de exclusão.
+- Histórico de transições e laudo de decisão são append-only: não existe caminho de
+  alteração nem de exclusão em nenhum dos dois.
+- A trilha de transições é numerada, não ordenada por data. A análise faz duas transições
+  na mesma requisição, com o mesmo instante gravado nas duas, e ordenar por data deixaria a
+  trilha sair em ordem indefinida justamente na hora em que ela precisa ser lida como
+  sequência.
 
 Auditoria de dependências (`dotnet list package --vulnerable --include-transitive`) sem
 nenhuma ocorrência.
 
 ## O que ainda não está aqui
 
-- Motor de regras, política versionada e laudo da decisão. Enquanto ele não existe, a
-  simulação recebe a taxa como parâmetro; depois ela sai da faixa de score da política
-  vigente.
 - Contratação, cronograma persistido e liquidação.
+- Integração com birô de crédito de verdade. Hoje há um substituto determinístico, e a
+  troca é só no registro de dependências.
+- Cadastro de nova versão de política pela API. Hoje a versão 1 vem semeada na migração e
+  uma versão nova exigiria migração ou inserção manual.
+- Expiração automática de proposta aprovada. O estado existe na máquina, mas nada o
+  dispara ainda.
 - Autenticação e papéis. Enquanto não existirem, a renda fica fora de toda resposta.
 - Atrás de proxy, o limite de submissão precisa de `ForwardedHeaders` com a lista de
   proxies confiáveis, senão o IP vira o do balanceador e o limite passa a valer para todo
